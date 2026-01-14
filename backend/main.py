@@ -41,7 +41,8 @@ supabase = create_client(
 )
 
 # OAuth configuration
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+SCOPES = ['https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.send']
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
@@ -165,13 +166,11 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
     
     # 3. Check if already running (ignore paused/completed/failed)
     existing = supabase.table("workflow_executions")\
-        .select("*")\
-        .eq("workspace_id", workspace_id)\
-        .eq("user_id", body.user_id)\
-        .neq("status", "paused")\
-        .neq("status", "completed")\
-        .neq("status", "failed")\
-        .execute()
+    .select("*")\
+    .eq("workspace_id", workspace_id)\
+    .eq("user_id", body.user_id)\
+    .in_("status", ["waiting", "active"])\
+    .execute()
     
     if existing.data:
         raise HTTPException(
