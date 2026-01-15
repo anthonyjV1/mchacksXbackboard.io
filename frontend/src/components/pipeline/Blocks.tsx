@@ -1,6 +1,6 @@
 // src/components/pipeline/Blocks.tsx
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { BlockData, isConditionBlock } from '../../../types/pipeline';
@@ -21,7 +21,7 @@ interface BlockProps {
   workspaceId?: string;
 }
 
-export function Block({ data, isDragging, onDelete, onUpdate, className, style, onOpenPanel, isSelected, workspaceId }: BlockProps) {
+const BlockComponent = ({ data, isDragging, onDelete, onUpdate, className, style, onOpenPanel, isSelected, workspaceId }: BlockProps) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   // CHECK FOR OAUTH RETURN
@@ -89,29 +89,32 @@ export function Block({ data, isDragging, onDelete, onUpdate, className, style, 
   const Icon = blockDef.icon;
   const isCondition = isConditionBlock(data.type);
 
-  const handleBlockClick = (e: React.MouseEvent) => {
-    console.log('Block clicked:', data.id, 'isDragging:', isDragging);
+  const handleBlockClick = useCallback((e: React.MouseEvent) => {
     if (isDragging) return;
-    console.log('Opening modal for block:', data.id);
     setIsModalOpen(true);
     if (onOpenPanel) {
       onOpenPanel(data.id);
     }
-  };
+  }, [isDragging, data.id, onOpenPanel]);
 
-  const handleModalClose = () => {
+  const handleModalClose = useCallback(() => {
     setIsModalOpen(false);
     if (onOpenPanel) {
       onOpenPanel('');
     }
-  };
+  }, [onOpenPanel]);
 
-  const handleModalSave = (updatedData: Partial<BlockData>) => {
+  const handleModalSave = useCallback((updatedData: Partial<BlockData>) => {
     if (onUpdate) {
       onUpdate(data.id, updatedData);
     }
     setIsModalOpen(false);
-  };
+  }, [data.id, onUpdate]);
+
+  const handleDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete?.(data.id);
+  }, [data.id, onDelete]);
 
   return (
     <>
@@ -166,10 +169,7 @@ export function Block({ data, isDragging, onDelete, onUpdate, className, style, 
               </h4>
               {onDelete && !data.isSystemGenerated && (
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(data.id);
-                  }}
+                  onClick={handleDelete}
                   className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-50 hover:text-red-500 rounded-lg text-slate-400 transition-all active:scale-90"
                 >
                   <X size={14} strokeWidth={3} />
@@ -194,3 +194,15 @@ export function Block({ data, isDragging, onDelete, onUpdate, className, style, 
     </>
   );
 }
+
+// Memoize to prevent unnecessary re-renders
+export const Block = memo(BlockComponent, (prevProps, nextProps) => {
+  // Only re-render if these props change
+  return (
+    prevProps.data.id === nextProps.data.id &&
+    prevProps.data.title === nextProps.data.title &&
+    prevProps.data.description === nextProps.data.description &&
+    prevProps.isDragging === nextProps.isDragging &&
+    prevProps.isSelected === nextProps.isSelected
+  );
+});

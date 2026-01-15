@@ -1,7 +1,6 @@
 // Toolbar.tsx
 'use client';
-
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Undo2, 
   Redo2, 
@@ -10,7 +9,10 @@ import {
   Maximize, 
   Download,
   Share2,
-  MousePointer2
+  MousePointer2,
+  Mic,
+  MicOff,
+  Loader2
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -24,6 +26,7 @@ interface ToolbarProps {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  onVoiceCommand?: (transcript: string) => void;
 }
 
 export function Toolbar({ 
@@ -34,8 +37,20 @@ export function Toolbar({
   undo, 
   redo, 
   canUndo, 
-  canRedo 
+  canRedo,
+  onVoiceCommand
 }: ToolbarProps) {
+  const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
+
+  const handleMicClick = () => {
+    if (voiceStatus !== 'idle') {
+      // Already active, do nothing
+      return;
+    }
+    // Trigger voice command via parent component
+    onVoiceCommand?.('');
+  };
+
   return (
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 bg-white border shadow-xl rounded-2xl z-40">
       <div className="flex items-center gap-1 px-1 border-r">
@@ -72,6 +87,42 @@ export function Toolbar({
           onClick={onResetZoom} 
           tooltip="Reset View"
         />
+      </div>
+
+      {/* Voice Command Button */}
+      <div className="flex items-center gap-1 px-1 border-r">
+        <motion.button
+          whileTap={{ scale: voiceStatus === 'idle' ? 0.9 : 1 }}
+          onClick={handleMicClick}
+          disabled={voiceStatus !== 'idle'}
+          className={cn(
+            "p-2 rounded-xl transition-all relative",
+            voiceStatus === 'idle' && "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
+            voiceStatus === 'listening' && "text-red-500 bg-red-50",
+            voiceStatus === 'thinking' && "text-blue-500 bg-blue-50",
+            voiceStatus === 'speaking' && "text-green-500 bg-green-50"
+          )}
+          title={
+            voiceStatus === 'idle' ? 'Voice Command' :
+            voiceStatus === 'listening' ? 'Listening...' :
+            voiceStatus === 'thinking' ? 'Processing...' :
+            'Assistant speaking...'
+          }
+        >
+          {voiceStatus === 'idle' && <Mic size={18} />}
+          {voiceStatus === 'listening' && (
+            <>
+              <Mic size={18} />
+              <motion.span
+                className="absolute inset-0 rounded-xl bg-red-500"
+                animate={{ opacity: [0.3, 0.1, 0.3] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              />
+            </>
+          )}
+          {voiceStatus === 'thinking' && <Loader2 size={18} className="animate-spin" />}
+          {voiceStatus === 'speaking' && <Mic size={18} />}
+        </motion.button>
       </div>
 
       <div className="flex items-center gap-1 px-1">
