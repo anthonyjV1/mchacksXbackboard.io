@@ -297,7 +297,7 @@ class VoiceCommandRequest(BaseModel):
 # WORKFLOW TEMPLATES - Define your pre-built workflows here
 WORKFLOW_TEMPLATES = {
     "reply-to-email": {
-        "keywords": ["reply", "email", "respond", "answer"],
+        "keywords": ["reply", "respond", "answer"],
         "blocks": [
             {
                 "type": "integration-gmail",
