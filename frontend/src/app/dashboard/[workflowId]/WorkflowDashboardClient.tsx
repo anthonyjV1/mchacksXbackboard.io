@@ -10,6 +10,7 @@ import { Toolbar } from '@/components/pipeline/Toolbar'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { Play, Square, Loader2 } from 'lucide-react'
+import { vapiService } from '@/lib/vapi'
 
 interface WorkflowDashboardClientProps {
   workflow: {
@@ -35,6 +36,7 @@ export default function WorkflowDashboardClient({
   const offsetBeforePanel = useRef<{ x: number; y: number } | null>(null)
   const [userId, setUserId] = useState<string>('')
   const [pipelineStatus, setPipelineStatus] = useState<'idle' | 'active' | 'launching'>('idle')
+  const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
   
   const store = usePipelineStore()
 
@@ -76,6 +78,85 @@ export default function WorkflowDashboardClient({
     store.setBlocks(updatedBlocks)
   }
 
+  // Voice command handler - SIMPLE version, just like clicking sidebar
+  const handleVoiceCommand = async () => {
+    if (!userId) {
+      alert('Please wait, loading user information...')
+      return
+    }
+
+    try {
+      setVoiceStatus('listening')
+
+      await vapiService.startConversation(
+        // onTranscript - when user finishes speaking
+        async (transcript: string) => {
+          console.log('🎤 User said:', transcript)
+          setVoiceStatus('thinking')
+
+          try {
+            // Send to backend
+            const response = await fetch('http://localhost:8000/api/voice-command', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_id: userId,
+                workspace_id: workflow.id,
+                transcription: transcript
+              })
+            })
+
+            const data = await response.json()
+
+            if (!response.ok) {
+              throw new Error(data.detail || 'Failed to process command')
+            }
+
+            console.log('✅ Received blocks:', data.blocks)
+
+            // Create workflow from template - creates entire structure at once
+            if (data.blocks && data.blocks.length > 0) {
+              const blockTypes = data.blocks.map((block: any) => block.type)
+              console.log('🎯 Creating workflow from template with types:', blockTypes)
+              store.createWorkflowFromTemplate(blockTypes)
+            }
+
+            setVoiceStatus('speaking')
+
+            // Stop conversation after a delay
+            setTimeout(() => {
+              vapiService.stopConversation()
+              setVoiceStatus('idle')
+            }, 5000)
+
+          } catch (error: any) {
+            console.error('❌ Voice command error:', error)
+            alert(`Failed to process command: ${error.message}`)
+            vapiService.stopConversation()
+            setVoiceStatus('idle')
+          }
+        },
+        // onError
+        (error: Error) => {
+          console.error('❌ Vapi error:', error)
+          alert(`Voice error: ${error.message}`)
+          setVoiceStatus('idle')
+        },
+        // onStatusChange
+        (status) => {
+          setVoiceStatus(status)
+          if (status === 'idle') {
+            vapiService.stopConversation()
+          }
+        }
+      )
+    } catch (error: any) {
+      console.error('❌ Failed to start voice:', error)
+      alert(`Failed to start voice: ${error.message}`)
+      setVoiceStatus('idle')
+    }
+  }
+
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -84,14 +165,12 @@ export default function WorkflowDashboardClient({
     getUser()
   }, [])
 
-  // Check pipeline status on load and poll every 3 seconds
   useEffect(() => {
     const checkStatus = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
         
-        // Get ALL executions for this workspace and user
         const { data: executions, error } = await supabase
           .from('workflow_executions')
           .select('status, id')
@@ -103,22 +182,17 @@ export default function WorkflowDashboardClient({
           return
         }
         
-        // Find any execution that's not paused/completed/failed
         const activeExecution = executions?.find(
           ex => !['paused', 'completed', 'failed'].includes(ex.status)
         )
         
-        console.log('📊 Pipeline status check:', activeExecution ? `active (${activeExecution.status})` : 'idle')
         setPipelineStatus(activeExecution ? 'active' : 'idle')
       } catch (error) {
         console.error('Error checking status:', error)
       }
     }
     
-    // Check immediately on mount
     checkStatus()
-    
-    // Poll for status updates every 3 seconds
     const interval = setInterval(checkStatus, 3000)
     return () => clearInterval(interval)
   }, [workflow.id, supabase])
@@ -254,7 +328,6 @@ export default function WorkflowDashboardClient({
   }
 
   const handleLaunchPipeline = async () => {
-    // Validate before launching
     if (!userId) {
       alert('❌ Please wait, loading user information...')
       return
@@ -295,7 +368,6 @@ export default function WorkflowDashboardClient({
     } catch (error: any) {
       console.error('❌ Launch failed:', error)
       
-      // Better error messages
       let errorMessage = error.message
       if (errorMessage.includes('Gmail')) {
         errorMessage += '\n\nPlease connect your Gmail account first by adding a Gmail integration block.'
@@ -368,6 +440,7 @@ export default function WorkflowDashboardClient({
           redo={store.redo}
           canUndo={store.canUndo}
           canRedo={store.canRedo}
+          onVoiceCommand={handleVoiceCommand}
         />
 
         <div className="absolute top-6 left-6 right-6 flex items-center justify-between pointer-events-none">
@@ -387,6 +460,14 @@ export default function WorkflowDashboardClient({
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-green-600">
                   <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                   Active
+                </span>
+              )}
+              {voiceStatus !== 'idle' && (
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-blue-600">
+                  <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                  {voiceStatus === 'listening' ? 'Listening...' : 
+                   voiceStatus === 'thinking' ? 'Processing...' : 
+                   'Speaking...'}
                 </span>
               )}
             </div>

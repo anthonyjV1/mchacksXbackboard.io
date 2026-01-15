@@ -17,6 +17,7 @@ interface PipelineState {
   addPlaceholder: (index: number) => void // NEW
   removePlaceholder: () => void // NEW
   replacePlaceholder: (type: BlockType) => void // NEW
+  createWorkflowFromTemplate: (blockTypes: BlockType[]) => void // NEW: Create entire workflow at once
   removeBlock: (id: string) => void
   setZoom: (zoom: number) => void
   setOffset: (offset: { x: number; y: number }) => void
@@ -143,6 +144,116 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       history: newHistory,
       historyIndex: newHistory.length - 1,
       canUndo: true,
+      canRedo: false,
+    })
+  },
+
+  createWorkflowFromTemplate: (blockTypes) => {
+    const newBlocks: BlockData[] = []
+    const conditionStack: Array<{ id: string; nestedBlocks: BlockData[] }> = []
+    
+    // Process each block type in order
+    for (const type of blockTypes) {
+      const blockDef = BLOCK_DEFINITIONS.find(b => b.type === type)
+      
+      if (!blockDef) {
+        console.warn(`Unknown block type: ${type}`)
+        continue
+      }
+      
+      // If it's a condition block, create condition and start tracking nested blocks
+      if (blockDef.isCondition) {
+        // Close any previous open conditions first
+        while (conditionStack.length > 0) {
+          const condition = conditionStack.pop()!
+          newBlocks.push(...condition.nestedBlocks)
+          const conditionTitle = newBlocks.find(b => b.id === condition.id)?.title || 'Condition'
+          const endMarker: BlockData = {
+            id: `${condition.id}-end`,
+            type: 'condition-end-marker' as any,
+            title: `End of ${conditionTitle}`,
+            description: 'Paths merge here',
+            isSystemGenerated: true,
+            parentConditionId: condition.id,
+          }
+          newBlocks.push(endMarker)
+        }
+        
+        const conditionId = generateId()
+        const conditionBlock: BlockData = {
+          id: conditionId,
+          type,
+          title: blockDef.label,
+          description: blockDef.description,
+        }
+        newBlocks.push(conditionBlock)
+        conditionStack.push({ id: conditionId, nestedBlocks: [] })
+      } 
+      // If it's an action block and we have an open condition, add to nested blocks
+      else if (conditionStack.length > 0 && blockDef.category === 'Actions') {
+        const currentCondition = conditionStack[conditionStack.length - 1]
+        const actionBlock: BlockData = {
+          id: generateId(),
+          type,
+          title: blockDef.label,
+          description: blockDef.description,
+          parentConditionId: currentCondition.id,
+        }
+        currentCondition.nestedBlocks.push(actionBlock)
+      }
+      // Integration block or other block - close any open conditions first
+      else {
+        // Close all open conditions
+        while (conditionStack.length > 0) {
+          const condition = conditionStack.pop()!
+          newBlocks.push(...condition.nestedBlocks)
+          const conditionTitle = newBlocks.find(b => b.id === condition.id)?.title || 'Condition'
+          const endMarker: BlockData = {
+            id: `${condition.id}-end`,
+            type: 'condition-end-marker' as any,
+            title: `End of ${conditionTitle}`,
+            description: 'Paths merge here',
+            isSystemGenerated: true,
+            parentConditionId: condition.id,
+          }
+          newBlocks.push(endMarker)
+        }
+        
+        // Add the new block
+        const newBlock: BlockData = {
+          id: generateId(),
+          type,
+          title: blockDef.label,
+          description: blockDef.description,
+        }
+        newBlocks.push(newBlock)
+      }
+    }
+    
+    // Close any remaining open conditions
+    while (conditionStack.length > 0) {
+      const condition = conditionStack.pop()!
+      newBlocks.push(...condition.nestedBlocks)
+      const conditionTitle = newBlocks.find(b => b.id === condition.id)?.title || 'Condition'
+      const endMarker: BlockData = {
+        id: `${condition.id}-end`,
+        type: 'condition-end-marker' as any,
+        title: `End of ${conditionTitle}`,
+        description: 'Paths merge here',
+        isSystemGenerated: true,
+        parentConditionId: condition.id,
+      }
+      newBlocks.push(endMarker)
+    }
+    
+    const newHistory = [[...newBlocks]].slice(-MAX_HISTORY)
+    
+    set({
+      blocks: newBlocks,
+      placeholderIndex: null,
+      history: newHistory,
+      historyIndex: 0,
+      canUndo: false,
       canRedo: false,
     })
   },

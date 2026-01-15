@@ -8,6 +8,8 @@ import os
 import json
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from services.backboard_service import backboard_service
+import re
 
 load_dotenv()
 
@@ -34,6 +36,11 @@ class LaunchRequest(BaseModel):
 class BlockConfig(BaseModel):
     workspace_id: str
     config: dict
+
+class VoiceCommandRequest(BaseModel):
+    user_id: str
+    workspace_id: str
+    transcription: str
 
 supabase = create_client(
     os.getenv("SUPABASE_URL"),
@@ -273,3 +280,250 @@ async def save_block_config(block_id: str, body: BlockConfig):
         "config": body.config
     }).execute()
     return {"success": True, "message": "Configuration saved"}
+
+
+
+#BACKBOARD ENDPOINT
+# Add these imports at the top with your other imports
+from services.backboard_service import backboard_service
+import re
+
+# Add this Pydantic model with your other models (after LaunchRequest, BlockConfig)
+class VoiceCommandRequest(BaseModel):
+    user_id: str
+    workspace_id: str
+    transcription: str
+
+# WORKFLOW TEMPLATES - Define your pre-built workflows here
+WORKFLOW_TEMPLATES = {
+    "reply-to-email": {
+        "keywords": ["reply", "respond", "answer"],
+        "blocks": [
+            {
+                "type": "integration-gmail",
+                "title": "Gmail Integration",
+                "description": "Connect your Gmail account"
+            },
+            {
+                "type": "condition-email-received",
+                "title": "Email Received",
+                "description": "Triggers when new email arrives"
+            },
+            {
+                "type": "action-reply-email",
+                "title": "Reply to Email",
+                "description": "Send automated reply"
+            }
+        ],
+        "message": "Perfect! I've created your email reply workflow. Just connect your Gmail and you're ready to start!"
+    },
+    "payment-notification": {
+        "keywords": ["payment", "stripe", "charge", "transaction"],
+        "blocks": [
+            {
+                "type": "integration-stripe",
+                "title": "Stripe Integration",
+                "description": "Connect your Stripe account"
+            },
+            {
+                "type": "condition-payment-success",
+                "title": "Payment Success",
+                "description": "Triggers when payment succeeds"
+            },
+            {
+                "type": "integration-slack",
+                "title": "Slack Integration",
+                "description": "Connect your Slack workspace"
+            },
+            {
+                "type": "action-alert-team",
+                "title": "Alert Team",
+                "description": "Notify team in Slack"
+            }
+        ],
+        "message": "Got it! I've set up your payment notification workflow. Connect Stripe and Slack to get started!"
+    }
+}
+
+def detect_template(transcription: str) -> dict | None:
+    """
+    Detect which template the user wants based on keywords in their voice command.
+    Returns the template dict or None if no match.
+    """
+    transcription_lower = transcription.lower()
+    
+    for template_name, template_data in WORKFLOW_TEMPLATES.items():
+        keywords = template_data["keywords"]
+        # Check if ANY of the keywords appear in the transcription
+        if any(keyword in transcription_lower for keyword in keywords):
+            print(f"✅ Detected template: {template_name}")
+            return template_data
+    
+    print("⚠️ No template detected")
+    return None
+
+# Add this endpoint anywhere after your /workflows endpoints
+@app.post("/api/voice-command")
+async def handle_voice_command(body: VoiceCommandRequest):
+    """
+    Handle voice command from Vapi:
+    1. Receive transcribed text
+    2. Detect which template user wants
+    3. Return pre-built blocks to create
+    """
+    try:
+        print(f"🎤 Voice command received: {body.transcription}")
+        
+        # Skip very short/incomplete transcriptions (VAPI sends incremental updates)
+        transcription_clean = body.transcription.strip()
+        if len(transcription_clean) < 10:
+            print("⏭️ Skipping incomplete transcription (too short)")
+            return {
+                "success": False,
+                "message": "Please continue speaking...",
+                "source": "incomplete"
+            }
+        
+        # First, try to match against templates
+        template = detect_template(body.transcription)
+        
+        if template:
+            # Return the pre-built template
+            print(f"✅ Using template: {template.get('message', 'Template matched')}")
+            return {
+                "success": True,
+                "blocks": template["blocks"],
+                "message": template["message"],
+                "source": "template"
+            }
+        
+        # If no template match, check if transcription seems complete
+        # VAPI often sends partial transcriptions - only use Backboard for complete sentences
+        if not any(punct in transcription_clean for punct in ['.', '!', '?']) and len(transcription_clean) < 30:
+            print("⏭️ Skipping incomplete transcription (no punctuation, too short)")
+            return {
+                "success": False,
+                "message": "Please finish your command...",
+                "source": "incomplete"
+            }
+        
+        # If no template match, fall back to AI generation with Backboard
+        print("🤖 No template match, using Backboard AI...")
+        
+        # Create a new Backboard thread for this command
+        try:
+            thread_id = await backboard_service.create_thread()
+        except Exception as backboard_error:
+            error_msg = str(backboard_error)
+            print(f"❌ Backboard error: {error_msg}")
+            
+            # If it's a quota/rate limit error, return fallback template
+            if "429" in error_msg or "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
+                print("⚠️ Backboard quota/rate limit hit, using fallback template")
+                return {
+                    "success": True,
+                    "blocks": WORKFLOW_TEMPLATES["reply-to-email"]["blocks"],
+                    "message": "I've created a basic email workflow for you. Connect Gmail to get started!",
+                    "source": "fallback-quota"
+                }
+            # Re-raise other errors
+            raise
+        
+        # Simplified system prompt focused on block generation
+        system_context = """You are a workflow automation assistant. Convert the user's voice command into a JSON structure.
+
+Respond with ONLY this JSON format (no markdown, no extra text):
+{
+    "blocks": [
+        {"type": "integration-gmail", "title": "Gmail Integration", "description": "Connect Gmail"},
+        {"type": "condition-email-received", "title": "Email Received", "description": "Triggers on new email"},
+        {"type": "action-reply-email", "title": "Reply to Email", "description": "Send reply"}
+    ],
+    "message": "I've created your workflow! Connect Gmail to get started."
+}
+
+IMPORTANT - Use these EXACT block types and titles:
+- integration-gmail with title "Gmail Integration"
+- condition-email-received with title "Email Received" (NOT "When Email Received")
+- action-reply-email with title "Reply to Email"
+- integration-slack with title "Slack Integration"
+- integration-stripe with title "Stripe Integration"
+- condition-payment-success with title "Payment Success"
+- action-send-email with title "Send Email"
+- action-alert-team with title "Alert Team"
+
+Rules:
+1. Start with integration block (gmail, slack, etc)
+2. Then add condition/trigger block
+3. End with action blocks
+4. Keep it simple - 3-4 blocks max
+5. Use exact titles from list above"""
+
+        # Get AI response from Backboard
+        try:
+            ai_response = await backboard_service.add_message_and_get_reply(
+                thread_id=thread_id,
+                sender_email=body.user_id,
+                subject="Voice Command",
+                body=f"{system_context}\n\nUser command: {body.transcription}"
+            )
+            
+            print(f"🤖 Backboard response: {ai_response[:200]}...")
+        except Exception as backboard_error:
+            error_msg = str(backboard_error)
+            print(f"❌ Backboard API error: {error_msg}")
+            
+            # If it's a quota/rate limit error, return fallback template
+            if "429" in error_msg or "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
+                print("⚠️ Backboard quota/rate limit hit, using fallback template")
+                return {
+                    "success": True,
+                    "blocks": WORKFLOW_TEMPLATES["reply-to-email"]["blocks"],
+                    "message": "I've created a basic email workflow for you. Connect Gmail to get started!",
+                    "source": "fallback-quota"
+                }
+            # Re-raise other errors
+            raise
+        
+        # Try to parse JSON from response
+        import json
+        
+        # Remove markdown code blocks if present
+        cleaned_response = ai_response.strip()
+        if cleaned_response.startswith("```"):
+            cleaned_response = re.sub(r'^```json?\s*|\s*```$', '', cleaned_response, flags=re.MULTILINE)
+        
+        # Extract JSON from response
+        json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+        if json_match:
+            workflow_data = json.loads(json_match.group())
+            print(f"✅ Parsed workflow: {len(workflow_data.get('blocks', []))} blocks")
+            
+            return {
+                "success": True,
+                "blocks": workflow_data.get("blocks", []),
+                "message": workflow_data.get("message", "Workflow created!"),
+                "source": "ai",
+                "thread_id": thread_id
+            }
+        else:
+            raise ValueError("Could not parse JSON from AI response")
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON parsing error: {str(e)}")
+        # Return fallback template
+        return {
+            "success": True,
+            "blocks": WORKFLOW_TEMPLATES["reply-to-email"]["blocks"],
+            "message": "I've created a basic email workflow for you. Connect Gmail to get started!",
+            "source": "fallback"
+        }
+    except Exception as e:
+        print(f"❌ Voice command error: {str(e)}")
+        # Return fallback instead of error
+        return {
+            "success": True,
+            "blocks": WORKFLOW_TEMPLATES["reply-to-email"]["blocks"],
+            "message": "I've created a workflow for you. Connect Gmail to get started!",
+            "source": "fallback"
+        }
