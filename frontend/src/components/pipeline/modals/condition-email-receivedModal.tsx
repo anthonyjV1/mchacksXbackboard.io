@@ -70,7 +70,7 @@ export function ConditionEmailReceivedModal({
         <div className="p-6 border-b border-slate-200 shrink-0">
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-lg">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg">
                 <Mail size={22} />
               </div>
               <div>
@@ -104,7 +104,7 @@ export function ConditionEmailReceivedModal({
               value={settings.senderEmail}
               onChange={(e) => setSettings({ ...settings, senderEmail: e.target.value })}
               placeholder="example@domain.com"
-              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none transition-all text-sm"
+              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm"
             />
             <p className="text-xs text-slate-500 mt-2">
               Leave empty to trigger on emails from any sender
@@ -121,7 +121,7 @@ export function ConditionEmailReceivedModal({
               value={settings.subjectContains}
               onChange={(e) => setSettings({ ...settings, subjectContains: e.target.value })}
               placeholder="Enter keywords..."
-              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none transition-all text-sm"
+              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm"
             />
             <p className="text-xs text-slate-500 mt-2">
               Filter emails by subject line keywords
@@ -139,7 +139,7 @@ export function ConditionEmailReceivedModal({
                 id="hasAttachment"
                 checked={settings.hasAttachment}
                 onChange={(e) => setSettings({ ...settings, hasAttachment: e.target.checked })}
-                className="w-5 h-5 text-violet-600 rounded focus:ring-2 focus:ring-violet-500 cursor-pointer"
+                className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
               />
               <label htmlFor="hasAttachment" className="text-sm font-medium text-slate-700 cursor-pointer flex-1">
                 Email must have an attachment
@@ -174,7 +174,7 @@ export function ConditionEmailReceivedModal({
             </button>
             <button
               onClick={handleSave}
-              className="flex-1 px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 rounded-xl transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2"
             >
               <Save size={16} />
               Save Changes
