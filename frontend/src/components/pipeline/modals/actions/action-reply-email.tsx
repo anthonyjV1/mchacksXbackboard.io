@@ -2,7 +2,7 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Mail, Send, Sparkles } from 'lucide-react';
+import { X, Reply, Sparkles } from 'lucide-react';
 import { BlockData } from '../../../../../types/pipeline';
 import { createClient } from '@/lib/supabase/client';
 
@@ -108,8 +108,8 @@ export function ActionReplyEmailModal({
         <div className="p-6 border-b border-slate-200 shrink-0">
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 text-white shadow-lg">
-                <Send size={22} />
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-400 to-teal-500 text-white shadow-lg">
+                <Reply size={22} />
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-900">
@@ -132,18 +132,18 @@ export function ActionReplyEmailModal({
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500"></div>
             </div>
           ) : (
             <>
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
                 <div className="flex gap-2">
-                  <Sparkles size={18} className="text-blue-600 mt-0.5 shrink-0" />
+                  <Sparkles size={18} className="text-cyan-600 mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-sm font-semibold text-blue-900 mb-1">
+                    <p className="text-sm font-semibold text-teal-900 mb-1">
                       Powered by Backboard.io
                     </p>
-                    <p className="text-xs text-blue-700 leading-relaxed">
+                    <p className="text-xs text-cyan-700 leading-relaxed">
                       AI maintains conversation memory across email threads. It remembers 
                       past interactions and context automatically.
                     </p>
@@ -161,7 +161,7 @@ export function ActionReplyEmailModal({
                     onChange={(e) => setCustomInstructions(e.target.value)}
                     placeholder="e.g., Always be friendly and professional. Include our support link at the end of every email."
                     rows={6}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent resize-none"
                   />
                   <p className="text-xs text-slate-500 mt-1.5">
                     Add specific instructions for how the AI should respond
@@ -200,7 +200,7 @@ export function ActionReplyEmailModal({
           <button
             onClick={handleSave}
             disabled={saving}
-            className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 rounded-xl transition-all shadow-sm hover:shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-cyan-400 to-teal-500 hover:from-cyan-500 hover:to-teal-600 rounded-xl transition-all shadow-sm hover:shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saving ? (
               <>
@@ -209,7 +209,7 @@ export function ActionReplyEmailModal({
               </>
             ) : (
               <>
-                <Send size={16} />
+                <Reply size={16} />
                 Save Configuration
               </>
             )}

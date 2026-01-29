@@ -132,7 +132,7 @@ export function IntegrationGmailModal({
         <div className="p-6 border-b border-slate-200 shrink-0">
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 text-white shadow-lg">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-red-400 to-red-500 text-white shadow-lg">
                 <Mail size={22} />
               </div>
               <div>
