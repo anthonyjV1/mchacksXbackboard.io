@@ -37,6 +37,7 @@ export default function WorkflowDashboardClient({
   const [userId, setUserId] = useState<string>('')
   const [pipelineStatus, setPipelineStatus] = useState<'idle' | 'active' | 'launching'>('idle')
   const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
+  const isProcessingRef = useRef(false) // Prevent duplicate processing
   
   const store = usePipelineStore()
 
@@ -78,20 +79,50 @@ export default function WorkflowDashboardClient({
     store.setBlocks(updatedBlocks)
   }
 
-  // Voice command handler - SIMPLE version, just like clicking sidebar
+  // Smooth voice handler with graceful cancellation
   const handleVoiceCommand = async () => {
     if (!userId) {
       alert('Please wait, loading user information...')
       return
     }
 
+    // Toggle: If active, stop immediately and cleanly
+    if (voiceStatus !== 'idle') {
+      console.log('🛑 User cancelled voice command')
+      isProcessingRef.current = false
+      vapiService.stopConversation()
+      setVoiceStatus('idle')
+      return
+    }
+
     try {
+      isProcessingRef.current = false
       setVoiceStatus('listening')
 
       await vapiService.startConversation(
         // onTranscript - when user finishes speaking
         async (transcript: string) => {
           console.log('🎤 User said:', transcript)
+          
+          // Check for cancellation keywords
+          const cancelKeywords = ['never mind', 'nevermind', 'cancel', 'stop', 'forget it', 'no thanks']
+          const transcriptLower = transcript.toLowerCase()
+          
+          if (cancelKeywords.some(keyword => transcriptLower.includes(keyword))) {
+            console.log('👋 User cancelled gracefully')
+            vapiService.stopConversation()
+            setVoiceStatus('idle')
+            isProcessingRef.current = false
+            return
+          }
+
+          // Prevent duplicate processing
+          if (isProcessingRef.current) {
+            console.log('⏭️ Already processing, skipping...')
+            return
+          }
+
+          isProcessingRef.current = true
           setVoiceStatus('thinking')
 
           try {
@@ -108,45 +139,67 @@ export default function WorkflowDashboardClient({
 
             const data = await response.json()
 
+            // Check if user cancelled while we were processing
+            if (!isProcessingRef.current) {
+              console.log('🚫 Cancelled during processing')
+              return
+            }
+
             if (!response.ok) {
               throw new Error(data.detail || 'Failed to process command')
             }
 
-            console.log('✅ Received blocks:', data.blocks)
+            console.log('✅ Received workflow:', data)
 
-            // Create workflow from template - creates entire structure at once
+            // Create workflow from template
             if (data.blocks && data.blocks.length > 0) {
               const blockTypes = data.blocks.map((block: any) => block.type)
-              console.log('🎯 Creating workflow from template with types:', blockTypes)
+              console.log('🎯 Creating workflow:', blockTypes)
               store.createWorkflowFromTemplate(blockTypes)
-            }
-
-            setVoiceStatus('speaking')
-
-            // Stop conversation after a delay
-            setTimeout(() => {
+              
+              setVoiceStatus('speaking')
+              
+              // Let Vapi finish speaking naturally - it will trigger onStatusChange when done
+            } else {
+              // No blocks generated
               vapiService.stopConversation()
               setVoiceStatus('idle')
-            }, 5000)
+              isProcessingRef.current = false
+            }
 
           } catch (error: any) {
             console.error('❌ Voice command error:', error)
-            alert(`Failed to process command: ${error.message}`)
+            
+            // Don't show alert if user cancelled
+            if (isProcessingRef.current) {
+              alert(`Failed to process: ${error.message}`)
+            }
+            
             vapiService.stopConversation()
             setVoiceStatus('idle')
+            isProcessingRef.current = false
           }
         },
         // onError
         (error: Error) => {
           console.error('❌ Vapi error:', error)
-          alert(`Voice error: ${error.message}`)
+          
+          // Only show error if not a user cancellation
+          if (isProcessingRef.current) {
+            alert(`Voice error: ${error.message}`)
+          }
+          
           setVoiceStatus('idle')
+          isProcessingRef.current = false
         },
-        // onStatusChange
+        // onStatusChange - automatically reset when Vapi finishes
         (status) => {
-          setVoiceStatus(status)
+          console.log('📊 Vapi status changed to:', status)
+          // When Vapi conversation naturally ends (after speaking), reset everything
           if (status === 'idle') {
-            vapiService.stopConversation()
+            console.log('✅ Vapi conversation ended naturally - resetting to idle')
+            setVoiceStatus('idle')
+            isProcessingRef.current = false
           }
         }
       )
@@ -154,6 +207,7 @@ export default function WorkflowDashboardClient({
       console.error('❌ Failed to start voice:', error)
       alert(`Failed to start voice: ${error.message}`)
       setVoiceStatus('idle')
+      isProcessingRef.current = false
     }
   }
 
@@ -441,6 +495,7 @@ export default function WorkflowDashboardClient({
           canUndo={store.canUndo}
           canRedo={store.canRedo}
           onVoiceCommand={handleVoiceCommand}
+          voiceStatus={voiceStatus}
         />
 
         <div className="absolute top-6 left-6 right-6 flex items-center justify-between pointer-events-none">
@@ -463,8 +518,8 @@ export default function WorkflowDashboardClient({
                 </span>
               )}
               {voiceStatus !== 'idle' && (
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-blue-600">
-                  <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                   {voiceStatus === 'listening' ? 'Listening...' : 
                    voiceStatus === 'thinking' ? 'Processing...' : 
                    'Speaking...'}
