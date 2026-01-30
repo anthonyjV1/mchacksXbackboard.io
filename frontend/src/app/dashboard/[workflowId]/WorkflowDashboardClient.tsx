@@ -40,6 +40,7 @@ export default function WorkflowDashboardClient({
   const isProcessingRef = useRef(false) // Prevent duplicate processing
   
   const store = usePipelineStore()
+  const previousBlocksRef = useRef<BlockData[]>([]) // Track previous blocks to detect deletions
 
   const handleOpenPanel = (blockId: string) => {
     if (blockId) {
@@ -219,6 +220,42 @@ export default function WorkflowDashboardClient({
     getUser()
   }, [])
 
+  // Detect when Gmail integration block is deleted and disconnect
+  useEffect(() => {
+    const checkGmailBlockDeleted = async () => {
+      if (!userId || !isInitialized.current) return
+
+      const previousGmailBlock = previousBlocksRef.current.find(b => b.type === 'integration-gmail')
+      const currentGmailBlock = store.blocks.find(b => b.type === 'integration-gmail')
+
+      // Gmail block was deleted
+      if (previousGmailBlock && !currentGmailBlock) {
+        console.log('🔌 Gmail integration block deleted - disconnecting Gmail')
+        
+        try {
+          const { error } = await supabase
+            .from('user_oauth_credentials')
+            .delete()
+            .eq('user_id', userId)
+            .eq('provider', 'gmail')
+
+          if (error) {
+            console.error('❌ Error disconnecting Gmail:', error)
+          } else {
+            console.log('✅ Gmail disconnected successfully')
+          }
+        } catch (error) {
+          console.error('❌ Error disconnecting Gmail:', error)
+        }
+      }
+
+      // Update the previous blocks reference
+      previousBlocksRef.current = [...store.blocks]
+    }
+
+    checkGmailBlockDeleted()
+  }, [store.blocks, userId, supabase])
+
   useEffect(() => {
     const checkStatus = async () => {
       try {
@@ -276,6 +313,51 @@ export default function WorkflowDashboardClient({
       isInitialized.current = true
     }
   }, [workflow.id, initialBlocks])
+
+  // Sync Gmail connection status when workspace loads
+  useEffect(() => {
+    const syncGmailStatus = async () => {
+      if (!userId || !isInitialized.current) return
+
+      const gmailBlock = store.blocks.find(b => b.type === 'integration-gmail')
+      if (!gmailBlock) return
+
+      console.log('🔍 Checking Gmail connection status on load...')
+
+      try {
+        const { data, error } = await supabase
+          .from('user_oauth_credentials')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('provider', 'gmail')
+          .maybeSingle()
+
+        const isConnected = data && !error
+        const currentDescription = gmailBlock.description || ''
+        const expectedDescription = isConnected ? 'Connected' : 'Not connected'
+
+        // Only update if the description doesn't match the actual connection state
+        if (currentDescription !== expectedDescription) {
+          console.log(`📝 Updating Gmail block: ${currentDescription} → ${expectedDescription}`)
+          
+          const updatedBlocks = store.blocks.map(block =>
+            block.id === gmailBlock.id
+              ? { ...block, description: expectedDescription }
+              : block
+          )
+          store.setBlocks(updatedBlocks)
+        } else {
+          console.log('✅ Gmail block status already correct:', expectedDescription)
+        }
+      } catch (error) {
+        console.error('❌ Error checking Gmail status:', error)
+      }
+    }
+
+    // Run after a short delay to ensure blocks are loaded
+    const timer = setTimeout(syncGmailStatus, 500)
+    return () => clearTimeout(timer)
+  }, [workflow.id, userId, store.blocks, supabase])
 
   useEffect(() => {
     if (!isInitialized.current) return
