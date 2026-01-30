@@ -248,7 +248,7 @@ export function IntegrationGmailModal({
 
               <button
                 onClick={handleConnectGmail}
-                className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 rounded-xl transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2"
+                className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-red-400 to-red-500 hover:from-red-500 hover:to-red-600 rounded-xl transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2"
               >
                 <Mail size={16} />
                 Connect Gmail Account

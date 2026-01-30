@@ -257,6 +257,16 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
     """
     from blocks.action_reply_email import execute_reply_email
     
+    # Check if already processed
+    existing = supabase.table("workflow_executions")\
+        .select("id")\
+        .contains("trigger_data", {"email_id": message_id})\
+        .execute()
+
+    if existing.data:
+        print(f"⏭️ Already processed, skipping")
+        return
+
     try:
         service = get_user_gmail_service(user_id)
         
@@ -342,7 +352,7 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
             .select("*")\
             .eq("workspace_id", workspace_id)\
             .eq("user_id", user_id)\
-            .in_("status", ["waiting", "active"])\
+            .in_("status", ["waiting", "running"])\
             .execute()
         
         if not execution_result.data:
@@ -350,7 +360,7 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
             execution = supabase.table("workflow_executions").insert({
                 "workspace_id": workspace_id,
                 "user_id": user_id,
-                "status": "active",
+                "status": "running",
                 "current_block_index": 1
             }).execute()
             execution_id = execution.data[0]["id"]
