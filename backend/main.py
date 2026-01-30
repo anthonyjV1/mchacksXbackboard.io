@@ -57,7 +57,7 @@ supabase = create_client(
 SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/gmail.modify'  # Needed for push notifications
+    'https://www.googleapis.com/auth/gmail.modify'
 ]
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -145,12 +145,8 @@ def health():
 
 @app.post("/workflows/{workspace_id}/launch")
 async def launch_workflow(workspace_id: str, body: LaunchRequest):
-    """
-    Launch a workflow - sets up Gmail webhook instead of polling.
-    NOW PRODUCTION READY! 🚀
-    """
+    """Launch a workflow - sets up Gmail webhook"""
     
-    # 1. Validate workflow has email trigger blocks
     blocks = supabase.table("pipeline_blocks")\
         .select("*")\
         .eq("workspace_id", workspace_id)\
@@ -169,7 +165,6 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
             detail=f"Workflow must have at least one 'Email Received' condition block."
         )
     
-    # 2. Check if Gmail is connected
     gmail_creds = supabase.table("user_oauth_credentials")\
         .select("*")\
         .eq("user_id", body.user_id)\
@@ -182,7 +177,6 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
             detail="Gmail account not connected. Please connect Gmail first."
         )
     
-    # 3. Check if already running
     existing = supabase.table("workflow_executions")\
         .select("*")\
         .eq("workspace_id", workspace_id)\
@@ -196,7 +190,6 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
             detail="Pipeline is already running. Stop it first before launching again."
         )
     
-    # 4. Create execution record
     result = supabase.table("workflow_executions").insert({
         "workspace_id": workspace_id,
         "user_id": body.user_id,
@@ -206,7 +199,6 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
     
     execution_id = result.data[0]["id"]
     
-    # 5. Set up Gmail webhook (replaces polling!)
     try:
         watch_result = setup_gmail_watch(body.user_id, workspace_id)
         print(f"✅ Gmail webhook set up successfully")
@@ -225,7 +217,6 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
             }
         }
     except Exception as e:
-        # Rollback execution if webhook setup fails
         supabase.table("workflow_executions")\
             .delete()\
             .eq("id", execution_id)\
@@ -238,9 +229,8 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
 
 @app.post("/workflows/{workspace_id}/stop")
 async def stop_workflow(workspace_id: str, body: LaunchRequest):
-    """Stop a running workflow and disable webhook"""
+    """Stop a running workflow"""
     
-    # Get active executions
     all_executions = supabase.table("workflow_executions")\
         .select("*")\
         .eq("workspace_id", workspace_id)\
@@ -258,14 +248,12 @@ async def stop_workflow(workspace_id: str, body: LaunchRequest):
             detail="No active pipeline found to stop."
         )
     
-    # Stop Gmail webhook
     try:
         stop_gmail_watch(body.user_id, workspace_id)
         print(f"✅ Gmail webhook stopped")
     except Exception as e:
         print(f"⚠️ Warning: Could not stop Gmail webhook: {e}")
     
-    # Update executions to paused
     for execution_id in active_ids:
         supabase.table("workflow_executions")\
             .update({"status": "paused"})\
@@ -294,7 +282,6 @@ async def get_workflow_status(workspace_id: str, user_id: str):
     if result.data and len(result.data) > 0:
         execution_data = result.data[0]
         
-        # Check webhook status
         watch_result = supabase.table("gmail_watches")\
             .select("*")\
             .eq("user_id", user_id)\
@@ -324,33 +311,22 @@ async def save_block_config(block_id: str, body: BlockConfig):
     }).execute()
     return {"success": True, "message": "Configuration saved"}
 
-
-# ============================================================================
-# GMAIL WEBHOOK ENDPOINT - This receives notifications from Google Pub/Sub
-# ============================================================================
-
 @app.post("/webhooks/gmail")
 async def gmail_webhook(request: Request):
-    """
-    Handle Gmail push notifications from Google Pub/Sub.
-    This is called automatically when new emails arrive.
-    """
+    """Handle Gmail push notifications"""
     try:
-        # Get the Pub/Sub message
         body = await request.json()
         
         print(f"\n{'='*60}")
         print(f"📬 GMAIL WEBHOOK RECEIVED")
         print(f"{'='*60}")
         
-        # Decode the Pub/Sub message
         if 'message' not in body:
             print("⚠️ No message in webhook body")
             return {"status": "ignored"}
         
         message = body['message']
         
-        # Decode data
         if 'data' in message:
             decoded_data = base64.b64decode(message['data']).decode('utf-8')
             notification_data = json.loads(decoded_data)
@@ -364,18 +340,14 @@ async def gmail_webhook(request: Request):
                 print("⚠️ Missing email or history ID")
                 return {"status": "ignored"}
             
-            # Find user by email
             creds_result = supabase.table("user_oauth_credentials")\
                 .select("user_id")\
                 .eq("provider", "gmail")\
                 .execute()
             
-            # Find the matching user (Gmail API doesn't directly give us user_id)
-            # We need to check which user's Gmail this belongs to
             for cred in creds_result.data:
                 user_id = cred['user_id']
                 
-                # Check if this user has an active watch
                 watch_result = supabase.table("gmail_watches")\
                     .select("*")\
                     .eq("user_id", user_id)\
@@ -383,10 +355,7 @@ async def gmail_webhook(request: Request):
                 
                 if watch_result.data and len(watch_result.data) > 0:
                     print(f"✅ Found matching user: {user_id}")
-                    
-                    # Process the notification (AWAIT it!)
                     await process_gmail_notification(user_id, history_id)
-                    
                     return {"status": "processed"}
             
             print(f"⚠️ No active watch found for email: {email_address}")
@@ -400,120 +369,134 @@ async def gmail_webhook(request: Request):
         traceback.print_exc()
         return {"status": "error", "error": str(e)}
 
-
 # ============================================================================
-# VOICE COMMAND ENDPOINT (Existing - kept as is)
+# VOICE COMMAND ENDPOINT - Enhanced template matching
 # ============================================================================
 
-WORKFLOW_TEMPLATES = {
-    "reply-to-email": {
-        "keywords": ["reply", "respond", "answer"],
+# Define templates directly in backend for better matching
+WORKFLOW_TEMPLATES = [
+    {
+        "id": "email-reply-automation",
+        "name": "Email Reply Automation",
+        # Use word stems to match variations like reply/replies/replied/replying
+        "keywords": ["repl", "respond", "answer", "auto reply", "automatic"],
         "blocks": [
-            {
-                "type": "integration-gmail",
-                "title": "Gmail Integration",
-                "description": "Connect your Gmail account"
-            },
-            {
-                "type": "condition-email-received",
-                "title": "Email Received",
-                "description": "Triggers when new email arrives"
-            },
-            {
-                "type": "action-reply-email",
-                "title": "Reply to Email",
-                "description": "Send automated reply"
-            }
+            {"type": "integration-gmail", "title": "Gmail Integration", "description": "Connect Gmail"},
+            {"type": "condition-email-received", "title": "Email Received", "description": "Trigger"},
+            {"type": "action-reply-email", "title": "Reply to Email", "description": "Action"}
         ],
-        "message": "Perfect! I've created your email reply workflow. Just connect your Gmail and you're ready to start!"
+        "message": "Perfect! I've created an email reply automation for you. Just connect your Gmail and set up your reply message!"
+    },
+    {
+        "id": "email-sender",
+        "name": "Email Sender",
+        "keywords": ["send email", "send message", "email someone", "forward", "send an email", " send "],
+        "blocks": [
+            {"type": "integration-gmail", "title": "Gmail Integration", "description": "Connect Gmail"},
+            {"type": "condition-email-received", "title": "Email Received", "description": "Trigger"},
+            {"type": "action-send-email", "title": "Send Email", "description": "Action"}
+        ],
+        "message": "Awesome! I've set up an email sender workflow for you. Connect Gmail and configure who you want to send emails to."
     }
-}
+]
 
-def detect_template(transcription: str) -> dict | None:
-    """Detect which template the user wants based on keywords"""
-    transcription_lower = transcription.lower()
+def find_matching_template(transcript: str):
+    """Find the best matching template based on keywords"""
+    transcript_lower = transcript.lower()
     
-    for template_name, template_data in WORKFLOW_TEMPLATES.items():
-        keywords = template_data["keywords"]
-        if any(keyword in transcription_lower for keyword in keywords):
-            return template_data
+    print(f"🔍 Searching for template match in: '{transcript}'")
+    print(f"🔍 Lowercased: '{transcript_lower}'")
     
+    # Check each template's keywords
+    for template in WORKFLOW_TEMPLATES:
+        print(f"  Checking template: {template['name']}")
+        for keyword in template["keywords"]:
+            keyword_lower = keyword.lower()
+            print(f"    Checking keyword: '{keyword}' → '{keyword_lower}' in transcript?", keyword_lower in transcript_lower)
+            if keyword_lower in transcript_lower:
+                print(f"✅ Matched template '{template['name']}' via keyword '{keyword}'")
+                return template
+    
+    print("❌ No template match found")
     return None
 
 @app.post("/api/voice-command")
 async def handle_voice_command(body: VoiceCommandRequest):
-    """Handle voice command from Vapi"""
+    """
+    Handle voice command - Template matching with AI fallback
+    """
     try:
-        print(f"🎤 Voice command received: {body.transcription}")
+        print(f"\n{'='*60}")
+        print(f"🎤 Voice Command: '{body.transcription}'")
+        print(f"{'='*60}")
         
-        transcription_clean = body.transcription.strip()
-        if len(transcription_clean) < 10:
-            return {
-                "success": False,
-                "message": "Please continue speaking...",
-                "source": "incomplete"
-            }
+        # Try template matching first
+        matched_template = find_matching_template(body.transcription)
         
-        template = detect_template(body.transcription)
-        
-        if template:
+        if matched_template:
+            print(f"✅ Using template: {matched_template['name']}")
             return {
                 "success": True,
-                "blocks": template["blocks"],
-                "message": template["message"],
-                "source": "template"
+                "blocks": matched_template["blocks"],
+                "message": matched_template["message"],
+                "source": "template",
+                "template_id": matched_template["id"]
             }
         
-        if not any(punct in transcription_clean for punct in ['.', '!', '?']) and len(transcription_clean) < 30:
-            return {
-                "success": False,
-                "message": "Please finish your command...",
-                "source": "incomplete"
-            }
+        # If no template match, try AI generation
+        print(f"🤖 No template match, trying AI generation...")
         
-        # Fallback to AI generation with Backboard
         try:
             thread_id = await backboard_service.create_thread()
         except Exception as backboard_error:
             if "429" in str(backboard_error) or "quota" in str(backboard_error).lower():
+                # Return a basic fallback
                 return {
                     "success": True,
-                    "blocks": WORKFLOW_TEMPLATES["reply-to-email"]["blocks"],
-                    "message": "I've created a basic email workflow for you!",
+                    "blocks": WORKFLOW_TEMPLATES[0]["blocks"],  # Use first template as fallback
+                    "message": "I've created a workflow for you!",
                     "source": "fallback-quota"
                 }
             raise
         
-        system_context = """You are a workflow automation assistant. Convert voice commands into JSON.
+        system_context = f"""You are a friendly workflow automation assistant.
 
-Respond with ONLY this JSON format:
-{
+The user said: "{body.transcription}"
+
+Respond with ONLY valid JSON (no markdown, no code blocks):
+{{
     "blocks": [
-        {"type": "integration-gmail", "title": "Gmail Integration", "description": "Connect Gmail"},
-        {"type": "condition-email-received", "title": "Email Received", "description": "Triggers on new email"},
-        {"type": "action-reply-email", "title": "Reply to Email", "description": "Send reply"}
+        {{"type": "integration-gmail", "title": "Gmail Integration", "description": "Connect Gmail"}},
+        {{"type": "condition-email-received", "title": "Email Received", "description": "Trigger"}},
+        {{"type": "action-send-email", "title": "Send Email", "description": "Action"}}
     ],
-    "message": "Workflow created! Connect Gmail to get started."
-}
+    "message": "Brief friendly confirmation message"
+}}
 
-Use exact block types and titles from the list provided earlier."""
+Use these exact block types:
+- integration-gmail
+- condition-email-received  
+- action-reply-email (for replying to emails)
+- action-send-email (for sending new emails)
+
+Choose action-reply-email when the user wants to respond/reply to emails.
+Choose action-send-email when the user wants to send/forward emails."""
 
         try:
             ai_response = await backboard_service.add_message_and_get_reply(
                 thread_id=thread_id,
                 sender_email=body.user_id,
                 subject="Voice Command",
-                body=f"{system_context}\n\nUser command: {body.transcription}"
+                body=system_context
             )
             
-            cleaned_response = ai_response.strip()
-            if cleaned_response.startswith("```"):
-                cleaned_response = re.sub(r'^```json?\s*|\s*```$', '', cleaned_response, flags=re.MULTILINE)
+            cleaned = ai_response.strip()
+            if cleaned.startswith("```"):
+                cleaned = re.sub(r'^```json?\s*|\s*```$', '', cleaned, flags=re.MULTILINE)
             
-            json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+            json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
             if json_match:
                 workflow_data = json.loads(json_match.group())
-                
                 return {
                     "success": True,
                     "blocks": workflow_data.get("blocks", []),
@@ -521,22 +504,28 @@ Use exact block types and titles from the list provided earlier."""
                     "source": "ai",
                     "thread_id": thread_id
                 }
-            else:
-                raise ValueError("Could not parse JSON from AI response")
             
-        except Exception:
-            return {
-                "success": True,
-                "blocks": WORKFLOW_TEMPLATES["reply-to-email"]["blocks"],
-                "message": "I've created a workflow for you!",
-                "source": "fallback"
-            }
+        except Exception as e:
+            print(f"⚠️ AI generation failed: {e}")
+        
+        # Final fallback - use first template
+        print(f"⚠️ Using fallback template")
+        return {
+            "success": True,
+            "blocks": WORKFLOW_TEMPLATES[0]["blocks"],
+            "message": "I've created a workflow for you!",
+            "source": "fallback"
+        }
         
     except Exception as e:
         print(f"❌ Voice command error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Always return something - use first template
         return {
             "success": True,
-            "blocks": WORKFLOW_TEMPLATES["reply-to-email"]["blocks"],
+            "blocks": WORKFLOW_TEMPLATES[0]["blocks"],
             "message": "I've created a workflow for you!",
-            "source": "fallback"
+            "source": "error-fallback"
         }

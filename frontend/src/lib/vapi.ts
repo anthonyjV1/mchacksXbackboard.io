@@ -1,11 +1,11 @@
 import Vapi from '@vapi-ai/web';
 
-// Replace with your Vapi Assistant ID after creating it in dashboard
 const VAPI_ASSISTANT_ID = 'a6167bcf-4edf-466d-9c0f-685dc70d23e0';
 
 export class VapiService {
   private vapi: Vapi;
   private isConnected: boolean = false;
+  private hasProcessedMessage: boolean = false;
 
   constructor() {
     const publicKey = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY;
@@ -25,37 +25,67 @@ export class VapiService {
     onStatusChange: (status: 'listening' | 'thinking' | 'speaking' | 'idle') => void
   ): Promise<void> {
     try {
-      // Start call with assistant
+      this.hasProcessedMessage = false;
+      
       await this.vapi.start(VAPI_ASSISTANT_ID);
+      
       this.isConnected = true;
       onStatusChange('listening');
 
-      // Listen for speech updates
-      this.vapi.on('speech-start', () => {
-        console.log('🎤 User started speaking');
-        onStatusChange('listening');
-      });
-
-      this.vapi.on('speech-end', () => {
-        console.log('🤫 User stopped speaking');
-        onStatusChange('thinking');
-      });
-
-      // Listen for transcripts (when user finishes speaking)
+      // Listen for all messages
       this.vapi.on('message', (message: any) => {
-        console.log('📝 Vapi message:', message);
+        // Handle conversation-update messages
+        if (message.type === 'conversation-update' && !this.hasProcessedMessage) {
+          console.log('💬 CONVERSATION UPDATE received');
+          
+          if (!message.conversation) {
+            return;
+          }
+          
+          // Get the last user message from the conversation
+          const messages = message.conversation;
+          const lastMessage = messages[messages.length - 1];
+          
+          console.log('Last message:', lastMessage);
+          
+          // Check if it's a user message (not system or assistant)
+          if (lastMessage && lastMessage.role === 'user' && lastMessage.content) {
+            const userTranscript = lastMessage.content;
+            
+            console.log('✅ USER TRANSCRIPT FROM CONVERSATION:', userTranscript);
+            
+            // Prevent duplicate processing
+            this.hasProcessedMessage = true;
+            
+            // Send the transcript to the handler
+            onStatusChange('thinking');
+            onTranscript(userTranscript);
+          }
+        }
         
-        // Check if this is a transcript message
-        if (message.type === 'transcript' && message.role === 'user') {
-          const transcript = message.transcript || message.transcriptType;
-          if (transcript) {
-            console.log('✅ User transcript:', transcript);
-            onTranscript(transcript);
+        // Handle speech-update messages for UI status
+        if (message.type === 'speech-update') {
+          console.log('📢 Speech update:', message.role, message.status);
+          
+          if (message.role === 'user') {
+            if (message.status === 'started') {
+              console.log('🎤 User started speaking');
+              this.hasProcessedMessage = false; // Reset for next message
+              onStatusChange('listening');
+            }
+          } else if (message.role === 'assistant') {
+            if (message.status === 'started') {
+              console.log('🔊 Assistant started speaking');
+              onStatusChange('speaking');
+            } else if (message.status === 'stopped') {
+              console.log('✅ Assistant finished speaking - resetting to idle');
+              // Assistant finished speaking, go back to idle/ready state
+              onStatusChange('idle');
+            }
           }
         }
       });
 
-      // Listen for assistant speaking
       this.vapi.on('call-start', () => {
         console.log('📞 Call started');
       });
@@ -63,20 +93,22 @@ export class VapiService {
       this.vapi.on('call-end', () => {
         console.log('📞 Call ended');
         this.isConnected = false;
+        this.hasProcessedMessage = false;
         onStatusChange('idle');
       });
 
-      // Error handling
       this.vapi.on('error', (error: any) => {
         console.error('❌ Vapi error:', error);
         onError(new Error(error.message || 'Vapi error occurred'));
         this.isConnected = false;
+        this.hasProcessedMessage = false;
         onStatusChange('idle');
       });
 
     } catch (error) {
       console.error('❌ Failed to start Vapi:', error);
       this.isConnected = false;
+      this.hasProcessedMessage = false;
       onError(error as Error);
       onStatusChange('idle');
     }
@@ -90,6 +122,7 @@ export class VapiService {
       if (this.isConnected) {
         await this.vapi.stop();
         this.isConnected = false;
+        this.hasProcessedMessage = false;
         console.log('⏹️ Conversation stopped');
       }
     } catch (error) {
