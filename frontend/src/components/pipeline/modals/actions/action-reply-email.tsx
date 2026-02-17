@@ -35,25 +35,45 @@ export function ActionReplyEmailModal({
 
   useEffect(() => {
     if (isOpen && mounted) {
+      console.log('Modal opened, loading config for block:', blockData.id);
+      console.log('Workspace ID:', workspaceId);
       loadConfig();
     }
-  }, [isOpen, mounted]);
+  }, [isOpen, mounted, blockData.id, workspaceId]);  // Add dependencies!
 
   const loadConfig = async () => {
     setLoading(true);
     
+    console.log('   Loading config from Supabase...');
+    console.log('   Block ID:', blockData.id);
+    console.log('   Workspace ID:', workspaceId);
+    
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('block_configs')
         .select('config')
         .eq('workspace_id', workspaceId)
-        .eq('block_id', blockData.id)
-        .maybeSingle();
+        .eq('block_id', blockData.id);
       
-      if (data?.config) {
-        setCustomInstructions(data.config.customInstructions || '');
-        // Default to draft mode if not explicitly set
-        setDraftMode(data.config.draftMode !== undefined ? data.config.draftMode : true);
+      console.log('Supabase response:', { data, error });
+      
+      if (error) {
+        console.error('Supabase error:', error);
+        setLoading(false);
+        return;
+      }
+      
+      // Should only be 0 or 1 rows now (we delete old ones on save)
+      if (data && data.length > 0 && data[0].config) {
+        console.log('Found config:', data[0].config);
+        console.log('Setting custom instructions:', data[0].config.customInstructions);
+        console.log('Setting draft mode:', data[0].config.draftMode);
+        
+        setCustomInstructions(data[0].config.customInstructions || '');
+        setDraftMode(data[0].config.draftMode !== undefined ? data[0].config.draftMode : true);
+      } else {
+        console.log('No config found, using defaults');
+        console.log('   Data returned:', data);
       }
     } catch (error) {
       console.error('Error loading config:', error);
@@ -81,20 +101,51 @@ export function ActionReplyEmailModal({
   const handleSave = async () => {
     setSaving(true);
     
+    console.log('   Saving configuration...');
+    console.log('   Block ID:', blockData.id);
+    console.log('   Workspace ID:', workspaceId);
+    console.log('   Custom Instructions:', customInstructions);
+    console.log('   Draft Mode:', draftMode);
+    
     try {
-      // Save to block_configs table
-      const { error } = await supabase
-        .from('block_configs')
-        .upsert({
-          workspace_id: workspaceId,
-          block_id: blockData.id,
-          config: {
-            customInstructions,
-            draftMode
-          }
-        });
+      // STEP 1: Delete ALL existing configs for this block (keep table clean)
+      console.log('Deleting old configs for this block...');
       
-      if (error) throw error;
+      const { error: deleteError } = await supabase
+        .from('block_configs')
+        .delete()
+        .eq('workspace_id', workspaceId)
+        .eq('block_id', blockData.id);
+      
+      if (deleteError) {
+        console.error('Error deleting old configs:', deleteError);
+        // Continue anyway - not critical
+      } else {
+        console.log('Old configs deleted');
+      }
+      
+      // STEP 2: Insert fresh config
+      const configToSave = {
+        workspace_id: workspaceId,
+        block_id: blockData.id,
+        config: {
+          customInstructions,
+          draftMode
+        }
+      };
+      
+      console.log('Inserting new config to Supabase:', configToSave);
+      
+      const { data, error } = await supabase
+        .from('block_configs')
+        .insert(configToSave);
+      
+      if (error) {
+        console.error('Supabase insert error:', error);
+        throw error;
+      }
+      
+      console.log('Supabase insert success:', data);
       
       // Update block description to reflect mode
       let description = draftMode ? 'AI reply (Draft Mode)' : 'AI auto-reply';
@@ -104,14 +155,17 @@ export function ActionReplyEmailModal({
           : 'AI auto-reply with custom instructions';
       }
       
+      console.log('Updating block description:', description);
+      
       onSave({
         description
       });
       
+      console.log('Configuration saved successfully!');
       onClose();
     } catch (error) {
       console.error('Error saving config:', error);
-      alert('Failed to save configuration');
+      alert('Failed to save configuration: ' + JSON.stringify(error));
     } finally {
       setSaving(false);
     }
@@ -233,9 +287,14 @@ export function ActionReplyEmailModal({
                   <textarea
                     value={customInstructions}
                     onChange={(e) => setCustomInstructions(e.target.value)}
-                    placeholder="e.g., Always be friendly and include our support link. Keep responses to 5-7 sentences."
-                    rows={6}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent resize-none font-mono"
+                    placeholder="e.g., Always be friendly and professional.
+
+End every email with:
+Best regards,
+Your Name
+Company Name"
+                    rows={8}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent resize-none"
                   />
                   <p className="text-xs text-slate-500 mt-1.5">
                     These instructions <strong>override</strong> the default AI behavior. Be specific!
@@ -324,7 +383,7 @@ export function ActionReplyEmailModal({
             </div>
 
             <div className="space-y-2 text-sm text-slate-700 bg-slate-50 p-4 rounded-lg">
-              <p className="font-semibold">⚠️ Risks:</p>
+              <p className="font-semibold">Risks:</p>
               <ul className="space-y-1 ml-4 list-disc text-xs">
                 <li>No chance to review before sending</li>
                 <li>Potential for AI errors or inappropriate responses</li>

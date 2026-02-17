@@ -56,8 +56,6 @@ export function IntegrationGmailModal({
         setIsConnected(true);
         setUserEmail(user.email || '');
         
-        // Silently update the block description without closing
-        // Only save on first connection or if description changed
         if (blockData.description !== 'Connected') {
           onSave({
             title: blockData.title,

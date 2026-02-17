@@ -10,7 +10,15 @@ import { Toolbar } from '@/components/pipeline/Toolbar'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { Play, Square, Loader2 } from 'lucide-react'
-import { vapiService } from '@/lib/vapi'
+
+// Hooks
+import { usePipelineSave } from '@/lib/hooks/usePipelineSave'
+import { useGmailSync } from '@/lib/hooks/useGmailSync'
+import { usePipelineStatus } from '@/lib/hooks/usePipelineStatus'
+import { useVoiceCommand } from '@/lib/hooks/useVoiceCommand'
+
+// API
+import { launchPipeline, stopPipeline, validatePipelineLaunch } from '@/lib/pipelineApi'
 
 interface WorkflowDashboardClientProps {
   workflow: {
@@ -28,20 +36,71 @@ export default function WorkflowDashboardClient({
 }: WorkflowDashboardClientProps) {
   const supabase = createClient()
   const lastWorkflowId = useRef<string | null>(null)
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const isSaving = useRef(false)
   const isInitialized = useRef(false)
+  
   const [selectedBlockId, setSelectedBlockId] = useState<string>('')
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const offsetBeforePanel = useRef<{ x: number; y: number } | null>(null)
   const [userId, setUserId] = useState<string>('')
-  const [pipelineStatus, setPipelineStatus] = useState<'idle' | 'active' | 'launching'>('idle')
-  const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
-  const isProcessingRef = useRef(false) // Prevent duplicate processing
   
   const store = usePipelineStore()
-  const previousBlocksRef = useRef<BlockData[]>([]) // Track previous blocks to detect deletions
+  
+  // Custom hooks
+  const { status: pipelineStatus, setStatus: setPipelineStatus } = usePipelineStatus(workflow.id)
+  
+  const { voiceStatus, handleVoiceCommand } = useVoiceCommand(
+    userId,
+    workflow.id,
+    (blockTypes) => store.createWorkflowFromTemplate(blockTypes)
+  )
+  
+  usePipelineSave(store.blocks, workflow.id, isInitialized.current)
+  
+  useGmailSync(
+    store.blocks,
+    workflow.id,
+    userId,
+    isInitialized.current,
+    (blocks) => store.setBlocks(blocks)
+  )
 
+  // Get user ID
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) setUserId(user.id)
+    }
+    getUser()
+  }, [supabase])
+
+  // Load workspace blocks
+  useEffect(() => {
+    if (lastWorkflowId.current !== workflow.id) {
+      console.log('Loading workspace:', workflow.id)
+      lastWorkflowId.current = workflow.id
+      isInitialized.current = false
+
+      if (initialBlocks.length > 0) {
+        const formattedBlocks = initialBlocks.map(block => ({
+          id: block.block_id,
+          type: block.type,
+          title: block.title,
+          description: block.description,
+          isSystemGenerated: block.is_system_generated || false,
+          parentConditionId: block.parent_condition_id || undefined,
+        }))
+        console.log('Loaded blocks:', formattedBlocks)
+        store.setBlocks(formattedBlocks, true)
+      } else {
+        console.log('Empty workspace')
+        store.setBlocks([], true)
+      }
+      
+      isInitialized.current = true
+    }
+  }, [workflow.id, initialBlocks, store])
+
+  // Panel management
   const handleOpenPanel = (blockId: string) => {
     if (blockId) {
       offsetBeforePanel.current = { ...store.offset }
@@ -80,371 +139,58 @@ export default function WorkflowDashboardClient({
     store.setBlocks(updatedBlocks)
   }
 
-  // Smooth voice handler with graceful cancellation
-  const handleVoiceCommand = async () => {
+  // Pipeline actions
+  const handleLaunchPipeline = async () => {
     if (!userId) {
-      alert('Please wait, loading user information...')
+      alert('⏳ Please wait, loading user information...')
       return
     }
 
-    // Toggle: If active, stop immediately and cleanly
-    if (voiceStatus !== 'idle') {
-      console.log('🛑 User cancelled voice command')
-      isProcessingRef.current = false
-      vapiService.stopConversation()
-      setVoiceStatus('idle')
+    const validationError = validatePipelineLaunch(store.blocks)
+    if (validationError) {
+      alert(`${validationError}`)
       return
     }
 
+    setPipelineStatus('launching')
+    
     try {
-      isProcessingRef.current = false
-      setVoiceStatus('listening')
-
-      await vapiService.startConversation(
-        // onTranscript - when user finishes speaking
-        async (transcript: string) => {
-          console.log('🎤 User said:', transcript)
-          
-          // Check for cancellation keywords
-          const cancelKeywords = ['never mind', 'nevermind', 'cancel', 'stop', 'forget it', 'no thanks']
-          const transcriptLower = transcript.toLowerCase()
-          
-          if (cancelKeywords.some(keyword => transcriptLower.includes(keyword))) {
-            console.log('👋 User cancelled gracefully')
-            vapiService.stopConversation()
-            setVoiceStatus('idle')
-            isProcessingRef.current = false
-            return
-          }
-
-          // Prevent duplicate processing
-          if (isProcessingRef.current) {
-            console.log('⏭️ Already processing, skipping...')
-            return
-          }
-
-          isProcessingRef.current = true
-          setVoiceStatus('thinking')
-
-          try {
-            // Send to backend
-            const response = await fetch('http://localhost:8000/api/voice-command', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                user_id: userId,
-                workspace_id: workflow.id,
-                transcription: transcript
-              })
-            })
-
-            const data = await response.json()
-
-            // Check if user cancelled while we were processing
-            if (!isProcessingRef.current) {
-              console.log('🚫 Cancelled during processing')
-              return
-            }
-
-            if (!response.ok) {
-              throw new Error(data.detail || 'Failed to process command')
-            }
-
-            console.log('✅ Received workflow:', data)
-
-            // Create workflow from template
-            if (data.blocks && data.blocks.length > 0) {
-              const blockTypes = data.blocks.map((block: any) => block.type)
-              console.log('🎯 Creating workflow:', blockTypes)
-              store.createWorkflowFromTemplate(blockTypes)
-              
-              setVoiceStatus('speaking')
-              
-              // Let Vapi finish speaking naturally - it will trigger onStatusChange when done
-            } else {
-              // No blocks generated
-              vapiService.stopConversation()
-              setVoiceStatus('idle')
-              isProcessingRef.current = false
-            }
-
-          } catch (error: any) {
-            console.error('❌ Voice command error:', error)
-            
-            // Don't show alert if user cancelled
-            if (isProcessingRef.current) {
-              alert(`Failed to process: ${error.message}`)
-            }
-            
-            vapiService.stopConversation()
-            setVoiceStatus('idle')
-            isProcessingRef.current = false
-          }
-        },
-        // onError
-        (error: Error) => {
-          console.error('❌ Vapi error:', error)
-          
-          // Only show error if not a user cancellation
-          if (isProcessingRef.current) {
-            alert(`Voice error: ${error.message}`)
-          }
-          
-          setVoiceStatus('idle')
-          isProcessingRef.current = false
-        },
-        // onStatusChange - automatically reset when Vapi finishes
-        (status) => {
-          console.log('📊 Vapi status changed to:', status)
-          // When Vapi conversation naturally ends (after speaking), reset everything
-          if (status === 'idle') {
-            console.log('✅ Vapi conversation ended naturally - resetting to idle')
-            setVoiceStatus('idle')
-            isProcessingRef.current = false
-          }
-        }
-      )
+      console.log('Launching pipeline with user_id:', userId)
+      
+      const data = await launchPipeline(workflow.id, userId)
+      
+      console.log('Pipeline launched:', data)
+      setPipelineStatus('active')
+      alert('Pipeline is now active and monitoring for emails!')
     } catch (error: any) {
-      console.error('❌ Failed to start voice:', error)
-      alert(`Failed to start voice: ${error.message}`)
-      setVoiceStatus('idle')
-      isProcessingRef.current = false
+      console.error('Launch failed:', error)
+      
+      let errorMessage = error.message
+      if (errorMessage.includes('Gmail')) {
+        errorMessage += '\n\nPlease connect your Gmail account first by adding a Gmail integration block.'
+      }
+      
+      alert(`Failed to launch:\n\n${errorMessage}`)
+      setPipelineStatus('idle')
     }
   }
 
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) setUserId(user.id)
-    }
-    getUser()
-  }, [])
-
-  // Detect when Gmail integration block is deleted and disconnect
-  useEffect(() => {
-    const checkGmailBlockDeleted = async () => {
-      if (!userId || !isInitialized.current) return
-
-      const previousGmailBlock = previousBlocksRef.current.find(b => b.type === 'integration-gmail')
-      const currentGmailBlock = store.blocks.find(b => b.type === 'integration-gmail')
-
-      // Gmail block was deleted
-      if (previousGmailBlock && !currentGmailBlock) {
-        console.log('🔌 Gmail integration block deleted - disconnecting Gmail')
-        
-        try {
-          const { error } = await supabase
-            .from('user_oauth_credentials')
-            .delete()
-            .eq('user_id', userId)
-            .eq('provider', 'gmail')
-
-          if (error) {
-            console.error('❌ Error disconnecting Gmail:', error)
-          } else {
-            console.log('✅ Gmail disconnected successfully')
-          }
-        } catch (error) {
-          console.error('❌ Error disconnecting Gmail:', error)
-        }
-      }
-
-      // Update the previous blocks reference
-      previousBlocksRef.current = [...store.blocks]
-    }
-
-    checkGmailBlockDeleted()
-  }, [store.blocks, userId, supabase])
-
-  useEffect(() => {
-    const checkStatus = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
-        
-        const { data: executions, error } = await supabase
-          .from('workflow_executions')
-          .select('status, id')
-          .eq('workspace_id', workflow.id)
-          .eq('user_id', user.id)
-        
-        if (error) {
-          console.error('Error checking status:', error)
-          return
-        }
-        
-        const activeExecution = executions?.find(
-          ex => !['paused', 'completed', 'failed'].includes(ex.status)
-        )
-        
-        setPipelineStatus(activeExecution ? 'active' : 'idle')
-      } catch (error) {
-        console.error('Error checking status:', error)
-      }
-    }
+  const handleStopPipeline = async () => {
+    if (!userId) return
     
-    checkStatus()
-    const interval = setInterval(checkStatus, 3000)
-    return () => clearInterval(interval)
-  }, [workflow.id, supabase])
-
-  useEffect(() => {
-    if (lastWorkflowId.current !== workflow.id) {
-      console.log('🔄 Loading workspace:', workflow.id)
-      lastWorkflowId.current = workflow.id
-      isInitialized.current = false
-
-      if (initialBlocks.length > 0) {
-        const formattedBlocks = initialBlocks.map(block => ({
-          id: block.block_id,
-          type: block.type,
-          title: block.title,
-          description: block.description,
-          isSystemGenerated: block.is_system_generated || false,
-          parentConditionId: block.parent_condition_id || undefined,
-        }))
-        console.log('✅ Loaded blocks:', formattedBlocks)
-        store.setBlocks(formattedBlocks, true)
-      } else {
-        console.log('📭 Empty workspace')
-        store.setBlocks([], true)
-      }
+    try {
+      const data = await stopPipeline(workflow.id, userId)
       
-      isInitialized.current = true
+      console.log('⏹Pipeline stopped:', data)
+      setPipelineStatus('idle')
+      alert('Pipeline stopped successfully')
+    } catch (error: any) {
+      console.error('Stop failed:', error)
+      alert(`Failed to stop: ${error.message}`)
     }
-  }, [workflow.id, initialBlocks])
+  }
 
-  // Sync Gmail connection status when workspace loads
-  useEffect(() => {
-    const syncGmailStatus = async () => {
-      if (!userId || !isInitialized.current) return
-
-      const gmailBlock = store.blocks.find(b => b.type === 'integration-gmail')
-      if (!gmailBlock) return
-
-      console.log('🔍 Checking Gmail connection status on load...')
-
-      try {
-        const { data, error } = await supabase
-          .from('user_oauth_credentials')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('provider', 'gmail')
-          .maybeSingle()
-
-        const isConnected = data && !error
-        const currentDescription = gmailBlock.description || ''
-        const expectedDescription = isConnected ? 'Connected' : 'Not connected'
-
-        // Only update if the description doesn't match the actual connection state
-        if (currentDescription !== expectedDescription) {
-          console.log(`📝 Updating Gmail block: ${currentDescription} → ${expectedDescription}`)
-          
-          const updatedBlocks = store.blocks.map(block =>
-            block.id === gmailBlock.id
-              ? { ...block, description: expectedDescription }
-              : block
-          )
-          store.setBlocks(updatedBlocks)
-        } else {
-          console.log('✅ Gmail block status already correct:', expectedDescription)
-        }
-      } catch (error) {
-        console.error('❌ Error checking Gmail status:', error)
-      }
-    }
-
-    // Run after a short delay to ensure blocks are loaded
-    const timer = setTimeout(syncGmailStatus, 500)
-    return () => clearTimeout(timer)
-  }, [workflow.id, userId, store.blocks, supabase])
-
-  useEffect(() => {
-    if (!isInitialized.current) return
-    if (isSaving.current) return
-
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current)
-    }
-
-    saveTimeoutRef.current = setTimeout(async () => {
-      if (lastWorkflowId.current !== workflow.id) return
-
-      const hasPlaceholder = store.blocks.some(b => b.type === 'placeholder')
-      if (hasPlaceholder) return
-
-      isSaving.current = true
-      console.log('💾 Saving', store.blocks.length, 'blocks...')
-
-      try {
-        const { data: { user }, error: userError } = await supabase.auth.getUser()
-        
-        if (userError || !user) {
-          console.error('❌ Auth error:', userError)
-          isSaving.current = false
-          return
-        }
-
-        const { error: deleteError } = await supabase
-          .from('pipeline_blocks')
-          .delete()
-          .eq('workspace_id', workflow.id)
-
-        if (deleteError) {
-          console.error('❌ Delete error:', deleteError)
-          isSaving.current = false
-          return
-        }
-
-        if (store.blocks.length > 0) {
-          const blocksToInsert = store.blocks.map((block, index) => ({
-            workspace_id: workflow.id,
-            user_id: user.id,
-            block_id: block.id,
-            type: block.type,
-            title: block.title,
-            description: block.description || null,
-            position: index,
-            is_system_generated: block.isSystemGenerated || false,
-            parent_condition_id: block.parentConditionId || null,
-          }))
-
-          const { error: insertError } = await supabase
-            .from('pipeline_blocks')
-            .insert(blocksToInsert)
-
-          if (insertError) {
-            console.error('❌ Insert error:', insertError)
-            isSaving.current = false
-            return
-          }
-
-          console.log('✅ Saved successfully')
-        }
-
-        const { error: updateError } = await supabase
-          .from('workspaces')
-          .update({ updated_at: new Date().toISOString() })
-          .eq('id', workflow.id)
-
-        if (updateError) {
-          console.error('❌ Update error:', updateError)
-        }
-
-      } catch (error) {
-        console.error('❌ Save failed:', error)
-      } finally {
-        isSaving.current = false
-      }
-    }, 1000)
-
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current)
-      }
-    }
-  }, [store.blocks, workflow.id, supabase])
-
+  // Helper function
   const getLastEditedText = () => {
     if (!workflow.updated_at) return 'Never edited'
     
@@ -461,82 +207,6 @@ export default function WorkflowDashboardClient({
     
     const diffDays = Math.floor(diffHours / 24)
     return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`
-  }
-
-  const handleLaunchPipeline = async () => {
-    if (!userId) {
-      alert('❌ Please wait, loading user information...')
-      return
-    }
-
-    if (store.blocks.length === 0) {
-      alert('❌ Please add some blocks to your pipeline first')
-      return
-    }
-
-    const hasEmailTrigger = store.blocks.some(b => b.type === 'condition-email-received')
-    if (!hasEmailTrigger) {
-      alert('❌ Pipeline must have at least one "Email Received" block')
-      return
-    }
-
-    setPipelineStatus('launching')
-    
-    try {
-      console.log('🚀 Launching pipeline with user_id:', userId)
-      
-      const response = await fetch(`http://localhost:8000/workflows/${workflow.id}/launch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId })
-      })
-      
-      const data = await response.json()
-      console.log('Response:', data)
-      
-      if (!response.ok) {
-        throw new Error(data.detail || 'Failed to launch pipeline')
-      }
-      
-      console.log('✅ Pipeline launched:', data)
-      setPipelineStatus('active')
-      alert('✅ Pipeline is now active and monitoring for emails!')
-    } catch (error: any) {
-      console.error('❌ Launch failed:', error)
-      
-      let errorMessage = error.message
-      if (errorMessage.includes('Gmail')) {
-        errorMessage += '\n\nPlease connect your Gmail account first by adding a Gmail integration block.'
-      }
-      
-      alert(`❌ Failed to launch:\n\n${errorMessage}`)
-      setPipelineStatus('idle')
-    }
-  }
-
-  const handleStopPipeline = async () => {
-    if (!userId) return;
-    
-    try {
-      const response = await fetch(`http://localhost:8000/workflows/${workflow.id}/stop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId })
-      })
-      
-      const data = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(data.detail || 'Failed to stop pipeline')
-      }
-      
-      console.log('⏹️ Pipeline stopped:', data)
-      setPipelineStatus('idle')
-      alert('✅ Pipeline stopped successfully')
-    } catch (error: any) {
-      console.error('❌ Stop failed:', error)
-      alert(`❌ Failed to stop: ${error.message}`)
-    }
   }
 
   return (
