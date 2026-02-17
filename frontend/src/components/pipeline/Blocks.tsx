@@ -34,7 +34,7 @@ const BlockComponent = ({ data, isDragging, onDelete, onUpdate, className, style
       const oauthFlag = localStorage.getItem('gmail_oauth_return');
       if (!oauthFlag) return;
       
-      console.log('🔄 Block detected OAuth return, checking connection...');
+      console.log('Block detected OAuth return, checking connection...');
       
       // Only remove flag once to prevent multiple blocks from checking
       const blockCheckKey = `gmail_oauth_checked_${data.id}`;
@@ -59,7 +59,7 @@ const BlockComponent = ({ data, isDragging, onDelete, onUpdate, className, style
           .maybeSingle();
         
         if (credentials && data.description !== 'Connected') {
-          console.log('✅ Gmail connected! Updating block:', data.id);
+          console.log('Gmail connected! Updating block:', data.id);
           onUpdate?.(data.id, { description: 'Connected' });
           
           // Clean up check key after successful update
