@@ -25,31 +25,122 @@ export function ConditionEmailReceivedModal({
     subjectContains: '',
     hasAttachment: false,
   });
+  const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
-  // In ConditionEmailReceivedModal, update handleSave:
-  const handleSave = async () => {
-    // Save to backend
-    await fetch(`http://localhost:8000/blocks/${blockData.id}/config`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workspace_id: workspaceId, // Pass this as prop
-        config: settings
-      })
-    })
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  React.useEffect(() => {
+    if (isOpen && mounted) {
+      loadConfig();
+    }
+  }, [isOpen, mounted, blockData.id, workspaceId]);
+
+  const loadConfig = async () => {
+    setLoading(false);
     
-    onSave({
-      title: blockData.title,
-      description: settings.senderEmail 
-        ? `From: ${settings.senderEmail}` 
-        : blockData.description
-    })
-    onClose()
+    console.log(' Loading email condition config...');
+    console.log('   Block ID:', blockData.id);
+    console.log('   Workspace ID:', workspaceId);
+    
+    try {
+      const response = await fetch(
+        `http://localhost:8000/blocks/${blockData.id}/config?workspace_id=${workspaceId}`
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Loaded config:', data);
+        
+        if (data.config) {
+          setSettings({
+            senderEmail: data.config.senderEmail || '',
+            subjectContains: data.config.subjectContains || '',
+            hasAttachment: data.config.hasAttachment || false,
+          });
+        }
+      } else {
+        console.log('No existing config found');
+      }
+    } catch (error) {
+      console.error('Error loading config:', error);
+    }
+  };
+
+  const handleSave = async () => {
+    console.log('Saving email condition config:', settings);
+    
+    try {
+      // STEP 1: Delete ALL existing configs for this block (keep table clean)
+      console.log('Deleting old configs for this block...');
+      
+      const deleteResponse = await fetch(
+        `http://localhost:8000/blocks/${blockData.id}/config?workspace_id=${workspaceId}`,
+        {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+      
+      if (deleteResponse.ok) {
+        console.log('Old configs deleted');
+      } else {
+        console.warn('Could not delete old configs, continuing anyway...');
+      }
+      
+      // STEP 2: Insert fresh config
+      console.log('Inserting new config...');
+      
+      const saveResponse = await fetch(`http://localhost:8000/blocks/${blockData.id}/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          config: settings
+        })
+      });
+      
+      if (!saveResponse.ok) {
+        throw new Error('Failed to save config');
+      }
+      
+      console.log('Config saved successfully');
+      
+      // Build description based on active filters
+      let description = 'Any email';
+      const filters = [];
+      
+      if (settings.senderEmail) {
+        filters.push(`from ${settings.senderEmail}`);
+      }
+      if (settings.subjectContains) {
+        filters.push(`subject: "${settings.subjectContains}"`);
+      }
+      if (settings.hasAttachment) {
+        filters.push('with attachment');
+      }
+      
+      if (filters.length > 0) {
+        description = filters.join(', ');
+      }
+      
+      console.log('Updating block description:', description);
+      
+      onSave({
+        title: blockData.title,
+        description: description
+      });
+      
+      onClose();
+    } catch (error) {
+      console.error('Error saving config:', error);
+      alert('Failed to save configuration: ' + error);
+    }
   }
 
-  
-
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   console.log('ConditionEmailReceivedModal rendering, isOpen:', isOpen);
 
@@ -78,7 +169,7 @@ export function ConditionEmailReceivedModal({
                   Email Received
                 </h2>
                 <p className="text-sm text-slate-500 mt-0.5">
-                  Configure email condition settings
+                  Configure email filter conditions
                 </p>
               </div>
             </div>
@@ -94,73 +185,81 @@ export function ConditionEmailReceivedModal({
         {/* Content - Scrollable */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           
-          {/* Sender Email Field */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              Sender Email Address
-            </label>
-            <input
-              type="email"
-              value={settings.senderEmail}
-              onChange={(e) => setSettings({ ...settings, senderEmail: e.target.value })}
-              placeholder="example@domain.com"
-              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm"
-            />
-            <p className="text-xs text-slate-500 mt-2">
-              Leave empty to trigger on emails from any sender
-            </p>
-          </div>
-
-          {/* Subject Contains Field */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              Subject Contains
-            </label>
-            <input
-              type="text"
-              value={settings.subjectContains}
-              onChange={(e) => setSettings({ ...settings, subjectContains: e.target.value })}
-              placeholder="Enter keywords..."
-              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm"
-            />
-            <p className="text-xs text-slate-500 mt-2">
-              Filter emails by subject line keywords
-            </p>
-          </div>
-
-          {/* Has Attachment Toggle */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-3">
-              Attachment Requirements
-            </label>
-            <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
-              <input
-                type="checkbox"
-                id="hasAttachment"
-                checked={settings.hasAttachment}
-                onChange={(e) => setSettings({ ...settings, hasAttachment: e.target.checked })}
-                className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
-              />
-              <label htmlFor="hasAttachment" className="text-sm font-medium text-slate-700 cursor-pointer flex-1">
-                Email must have an attachment
-              </label>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
             </div>
-          </div>
-
-          {/* Info Box */}
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-            <div className="flex gap-2">
-              <Filter size={16} className="text-blue-600 mt-0.5 shrink-0" />
+          ) : (
+            <>
+              {/* Sender Email Field */}
               <div>
-                <p className="text-xs font-semibold text-blue-900 mb-1">
-                  Filter Logic
-                </p>
-                <p className="text-xs text-blue-700 leading-relaxed">
-                  All conditions you set must be met for this block to trigger. Leave fields empty to skip that condition.
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Sender Email Address
+                </label>
+                <input
+                  type="email"
+                  value={settings.senderEmail}
+                  onChange={(e) => setSettings({ ...settings, senderEmail: e.target.value })}
+                  placeholder="example@domain.com"
+                  className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm"
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  Leave empty to trigger on emails from any sender
                 </p>
               </div>
-            </div>
-          </div>
+
+              {/* Subject Contains Field */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Subject Contains
+                </label>
+                <input
+                  type="text"
+                  value={settings.subjectContains}
+                  onChange={(e) => setSettings({ ...settings, subjectContains: e.target.value })}
+                  placeholder="Enter keywords..."
+                  className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm"
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  Filter emails by subject line keywords (case-insensitive)
+                </p>
+              </div>
+
+              {/* Has Attachment Toggle */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-3">
+                  Attachment Requirements
+                </label>
+                <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <input
+                    type="checkbox"
+                    id="hasAttachment"
+                    checked={settings.hasAttachment}
+                    onChange={(e) => setSettings({ ...settings, hasAttachment: e.target.checked })}
+                    className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <label htmlFor="hasAttachment" className="text-sm font-medium text-slate-700 cursor-pointer flex-1">
+                    Email must have an attachment
+                  </label>
+                </div>
+              </div>
+
+              {/* Info Box */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                <div className="flex gap-2">
+                  <Filter size={16} className="text-blue-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs font-semibold text-blue-900 mb-1">
+                      Filter Logic
+                    </p>
+                    <p className="text-xs text-blue-700 leading-relaxed">
+                      All conditions you set must be met for this block to trigger. Leave fields empty to skip that condition.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer - Fixed */}
@@ -174,7 +273,8 @@ export function ConditionEmailReceivedModal({
             </button>
             <button
               onClick={handleSave}
-              className="flex-1 px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2"
+              disabled={loading}
+              className="flex-1 px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <Save size={16} />
               Save Changes

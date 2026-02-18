@@ -26,6 +26,13 @@ TOPIC_NAME = os.getenv("GMAIL_PUBSUB_TOPIC", "gmail-notifications")
 
 
 def get_user_gmail_service(user_id: str, force_refresh: bool = False):
+    """
+    Get Gmail service for specific user with automatic token refresh.
+    
+    Args:
+        user_id: User ID
+        force_refresh: If True, force token refresh even if not expired
+    """
     result = supabase.table("user_oauth_credentials")\
         .select("*")\
         .eq("user_id", user_id)\
@@ -75,9 +82,9 @@ def get_user_gmail_service(user_id: str, force_refresh: bool = False):
                 "token_expiry": creds.expiry.isoformat() if creds.expiry else None
             }).eq("user_id", user_id).eq("provider", "gmail").execute()
             
-            print(f"Token refreshed successfully for user {user_id}")
+            print(f"✅ Token refreshed successfully for user {user_id}")
         except Exception as refresh_error:
-            print(f"Token refresh failed: {refresh_error}")
+            print(f"❌ Token refresh failed: {refresh_error}")
             raise Exception(
                 f"Failed to refresh Gmail token for user {user_id}. "
                 f"User needs to reconnect their Gmail account. "
@@ -88,9 +95,15 @@ def get_user_gmail_service(user_id: str, force_refresh: bool = False):
 
 
 def setup_gmail_watch(user_id: str, workspace_id: str):
+    """
+    Set up Gmail push notifications for a user.
+    This replaces the polling system.
+    
+    FIXED: Better error handling and token refresh
+    """
     try:
         # First, try to get the service (this will refresh token if needed)
-        print(f"Setting up Gmail watch for user {user_id}...")
+        print(f"📧 Setting up Gmail watch for user {user_id}...")
         
         try:
             service = get_user_gmail_service(user_id, force_refresh=True)
@@ -109,7 +122,7 @@ def setup_gmail_watch(user_id: str, workspace_id: str):
             'topicName': f'projects/{PROJECT_ID}/topics/{TOPIC_NAME}'
         }
         
-        print(f"Sending watch request to Gmail API...")
+        print(f"📡 Sending watch request to Gmail API...")
         
         # Start watching
         response = service.users().watch(userId='me', body=request).execute()
@@ -124,6 +137,10 @@ def setup_gmail_watch(user_id: str, workspace_id: str):
             "expiration": expiration.isoformat()
         }).execute()
         
+        print(f"✅ Gmail watch set up successfully for user {user_id}")
+        print(f"   History ID: {response['historyId']}")
+        print(f"   Expires: {expiration}")
+        
         return {
             "success": True,
             "history_id": response['historyId'],
@@ -131,11 +148,15 @@ def setup_gmail_watch(user_id: str, workspace_id: str):
         }
         
     except Exception as e:
-        print(f"Failed to set up Gmail watch: {e}")
+        print(f"❌ Failed to set up Gmail watch: {e}")
         raise
 
 
 def stop_gmail_watch(user_id: str, workspace_id: str):
+    """
+    Stop Gmail push notifications for a user.
+    Called when workflow is stopped.
+    """
     try:
         service = get_user_gmail_service(user_id)
         
@@ -149,20 +170,32 @@ def stop_gmail_watch(user_id: str, workspace_id: str):
             .eq("workspace_id", workspace_id)\
             .execute()
         
-        print(f"Gmail watch stopped for user {user_id}")
+        print(f"✅ Gmail watch stopped for user {user_id}")
         return {"success": True}
         
     except Exception as e:
-        print(f"Failed to stop Gmail watch: {e}")
+        print(f"⚠️ Failed to stop Gmail watch: {e}")
         # Don't raise - might be already stopped
         return {"success": False, "error": str(e)}
 
 
 def renew_gmail_watch(user_id: str, workspace_id: str):
+    """
+    Renew Gmail watch (should be called before expiration).
+    Gmail watches expire after ~7 days.
+    """
     return setup_gmail_watch(user_id, workspace_id)
 
 
 async def process_gmail_notification(user_id: str, history_id: str):
+    """
+    Process a Gmail push notification.
+    This is triggered when a new email arrives.
+    
+    Args:
+        user_id: User ID
+        history_id: Gmail history ID from the notification
+    """
     try:
         # Get user's Gmail service
         service = get_user_gmail_service(user_id)
@@ -175,7 +208,7 @@ async def process_gmail_notification(user_id: str, history_id: str):
             .execute()
         
         if not watch_data.data:
-            print(f"No watch data found for user {user_id}")
+            print(f"⚠️ No watch data found for user {user_id}")
             return
         
         stored_history_id = watch_data.data['history_id']
@@ -189,7 +222,7 @@ async def process_gmail_notification(user_id: str, history_id: str):
         ).execute()
         
         if 'history' not in history:
-            print(f"No new messages for user {user_id}")
+            print(f"⏳ No new messages for user {user_id}")
             return
         
         # Process new messages
@@ -200,7 +233,7 @@ async def process_gmail_notification(user_id: str, history_id: str):
                     message = msg_record['message']
                     new_messages.append(message['id'])
         
-        print(f"Found {len(new_messages)} new messages for user {user_id}")
+        print(f"📧 Found {len(new_messages)} new messages for user {user_id}")
         
         # Update stored history ID
         supabase.table("gmail_watches").update({
@@ -212,24 +245,18 @@ async def process_gmail_notification(user_id: str, history_id: str):
             await process_new_email(user_id, workspace_id, message_id)
         
     except Exception as e:
-        print(f"Error processing Gmail notification: {e}")
+        print(f"❌ Error processing Gmail notification: {e}")
         import traceback
         traceback.print_exc()
 
 
 async def process_new_email(user_id: str, workspace_id: str, message_id: str):
+    """
+    Process a single new email - check conditions and trigger workflow.
+    This is the core logic that replaces check_for_emails polling.
+    """
     from blocks.action_reply_email import execute_reply_email
     
-    # Check if already processed
-    existing = supabase.table("workflow_executions")\
-        .select("id")\
-        .contains("trigger_data", {"email_id": message_id})\
-        .execute()
-
-    if existing.data:
-        print(f"Already processed, skipping")
-        return
-
     try:
         service = get_user_gmail_service(user_id)
         
@@ -251,10 +278,10 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
         
         # FILTER OUT emails sent by the user themselves (prevent catching own replies!)
         if user_email.lower() in from_email.lower():
-            print(f"Skipping email from self: {from_email}")
+            print(f"⏭️ Skipping email from self: {from_email}")
             return
         
-        print(f"Processing email from {from_email}: {subject}")
+        print(f"📨 Processing email from {from_email}: {subject}")
         
         # Get email body
         body = ""
@@ -266,6 +293,16 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
         elif 'body' in email['payload'] and 'data' in email['payload']['body']:
             body = base64.urlsafe_b64decode(email['payload']['body']['data']).decode('utf-8')
         
+        # Check if email has attachments
+        has_attachments = False
+        if 'parts' in email['payload']:
+            for part in email['payload']['parts']:
+                if part.get('filename'):  # Has a filename = attachment
+                    has_attachments = True
+                    break
+        
+        print(f"📎 Has attachments: {has_attachments}")
+        
         # First, find the email-received condition block in pipeline_blocks
         email_block = supabase.table("pipeline_blocks")\
             .select("block_id, type")\
@@ -274,11 +311,11 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
             .execute()
         
         if not email_block.data or len(email_block.data) == 0:
-            print(f"No email-received block found in workspace {workspace_id}")
+            print(f"⚠️ No email-received block found in workspace {workspace_id}")
             return
         
         block_id = email_block.data[0]['block_id']
-        print(f"Found email-received block: {block_id}")
+        print(f"✅ Found email-received block: {block_id}")
         
         # Get the config for this block (if it exists)
         config_result = supabase.table("block_configs")\
@@ -290,32 +327,46 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
         # Use config if exists, otherwise empty filters (process all emails)
         if config_result.data and len(config_result.data) > 0:
             email_condition_config = config_result.data[0]['config']
-            print(f"Found email condition config: {email_condition_config}")
+            print(f"✅ Found email condition config: {email_condition_config}")
         else:
             email_condition_config = {}
-            print(f"No filters configured - processing all emails")
+            print(f"ℹ️  No filters configured - processing all emails")
         
         # Check if email matches conditions
         sender_filter = email_condition_config.get("senderEmail", "")
         subject_filter = email_condition_config.get("subjectContains", "")
+        attachment_required = email_condition_config.get("hasAttachment", False)
+        
+        print(f"🔍 Checking filters:")
+        print(f"   Sender filter: '{sender_filter}' (empty = any)")
+        print(f"   Subject filter: '{subject_filter}' (empty = any)")
+        print(f"   Attachment required: {attachment_required}")
         
         # Apply filters
         if sender_filter and sender_filter.lower() not in from_email.lower():
-            print(f"Email doesn't match sender filter: {from_email}")
+            print(f"⏭️ Email doesn't match sender filter")
+            print(f"   Expected: {sender_filter}")
+            print(f"   Got: {from_email}")
             return
         
         if subject_filter and subject_filter.lower() not in subject.lower():
-            print(f"Email doesn't match subject filter: {subject}")
+            print(f"⏭️ Email doesn't match subject filter")
+            print(f"   Expected keyword: '{subject_filter}'")
+            print(f"   Got subject: '{subject}'")
             return
         
-        print(f"Email matches all conditions!")
+        if attachment_required and not has_attachments:
+            print(f"⏭️ Email doesn't have required attachment")
+            return
+        
+        print(f"✅ Email matches all conditions!")
         
         # Get or create workflow execution
         execution_result = supabase.table("workflow_executions")\
             .select("*")\
             .eq("workspace_id", workspace_id)\
             .eq("user_id", user_id)\
-            .in_("status", ["waiting", "running"])\
+            .in_("status", ["waiting", "active"])\
             .execute()
         
         if not execution_result.data:
@@ -323,7 +374,7 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
             execution = supabase.table("workflow_executions").insert({
                 "workspace_id": workspace_id,
                 "user_id": user_id,
-                "status": "running",
+                "status": "active",
                 "current_block_index": 1
             }).execute()
             execution_id = execution.data[0]["id"]
@@ -345,7 +396,7 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
             "trigger_data": trigger_data
         }).eq("id", execution_id).execute()
         
-        print(f"Triggering workflow execution {execution_id}")
+        print(f"🚀 Triggering workflow execution {execution_id}")
         
         # Execute action blocks (reply-email, etc.) - AWAIT IT!
         await execute_workflow_blocks(workspace_id, user_id, execution_id, trigger_data)
@@ -355,15 +406,18 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
             "status": "waiting"
         }).eq("id", execution_id).execute()
         
-        print(f"Workflow executed successfully for email {message_id}")
+        print(f"✅ Workflow executed successfully for email {message_id}")
         
     except Exception as e:
-        print(f"Error processing email {message_id}: {e}")
+        print(f"❌ Error processing email {message_id}: {e}")
         import traceback
         traceback.print_exc()
 
 
 async def execute_workflow_blocks(workspace_id: str, user_id: str, execution_id: str, trigger_data: dict):
+    """
+    Execute all action blocks in the workflow after email trigger.
+    """
     from blocks.action_reply_email import execute_reply_email
     
     # Get all blocks for this workspace
@@ -374,16 +428,16 @@ async def execute_workflow_blocks(workspace_id: str, user_id: str, execution_id:
         .execute()
     
     blocks = blocks_result.data
-    print(f"Executing {len(blocks)} blocks in workflow")
+    print(f"📋 Executing {len(blocks)} blocks in workflow")
     
     # Skip condition blocks, only execute action blocks
     action_blocks = [b for b in blocks if b['type'].startswith('action-')]
     
-    print(f"Found {len(action_blocks)} action blocks to execute")
+    print(f"🎯 Found {len(action_blocks)} action blocks to execute")
     
     for block in action_blocks:
         block_type = block['type']
-        print(f"\nExecuting block: {block['title']} ({block_type})")
+        print(f"\n▶️ Executing block: {block['title']} ({block_type})")
         
         if block_type == 'action-reply-email':
             try:
@@ -405,14 +459,14 @@ async def execute_workflow_blocks(workspace_id: str, user_id: str, execution_id:
                 )
                 
                 if result.get('status') == 'error':
-                    print(f"Block failed: {result.get('error')}")
+                    print(f"❌ Block failed: {result.get('error')}")
                 else:
-                    print(f"Block executed successfully")
+                    print(f"✅ Block executed successfully")
                     
             except Exception as e:
-                print(f"Exception executing reply-email block: {e}")
+                print(f"❌ Exception executing reply-email block: {e}")
                 import traceback
                 traceback.print_exc()
         
         else:
-            print(f"Unknown block type: {block_type}")
+            print(f"⚠️ Unknown block type: {block_type}")
