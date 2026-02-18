@@ -297,14 +297,48 @@ async def get_workflow_status(workspace_id: str, user_id: str):
         }
     else:
         return {"status": "idle"}
+    
+@app.get("/blocks/{block_id}/config")
+async def get_block_config(block_id: str, workspace_id: str):
+    """Get block configuration"""
+    try:
+        print(f"Loading config for block {block_id} in workspace {workspace_id}")
+        
+        result = supabase.table("block_configs")\
+            .select("config")\
+            .eq("workspace_id", workspace_id)\
+            .eq("block_id", block_id)\
+            .execute()
+        
+        if result.data and len(result.data) > 0:
+            print(f"Found config: {result.data[0]}")
+            return {"success": True, "config": result.data[0]["config"]}
+        else:
+            print(f"No config found")
+            return {"success": True, "config": None}
+    
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/blocks/{block_id}/config")
 async def save_block_config(block_id: str, body: BlockConfig):
-    supabase.table("block_configs").upsert({
+    """Save block configuration (auto-deletes old configs to keep table clean)"""
+    
+    # Delete old configs first
+    supabase.table("block_configs")\
+        .delete()\
+        .eq("workspace_id", body.workspace_id)\
+        .eq("block_id", block_id)\
+        .execute()
+    
+    # Insert new config
+    supabase.table("block_configs").insert({
         "workspace_id": body.workspace_id,
         "block_id": block_id,
         "config": body.config
     }).execute()
+    
     return {"success": True, "message": "Configuration saved"}
 
 @app.post("/webhooks/gmail")
