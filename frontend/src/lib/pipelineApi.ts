@@ -64,10 +64,20 @@ export function validatePipelineLaunch(blocks: BlockData[]): string | null {
     return 'Please add some blocks to your pipeline first'
   }
 
+  // Check for email integration (Gmail OR Outlook)
+  const hasEmailIntegration = blocks.some(b => 
+    b.type === 'integration-gmail' || b.type === 'integration-outlook'
+  )
+  
+  if (!hasEmailIntegration) {
+    return 'Pipeline must have either Gmail or Outlook integration block'
+  }
+
+  // Check for email trigger
   const hasEmailTrigger = blocks.some(b => b.type === 'condition-email-received')
   if (!hasEmailTrigger) {
     return 'Pipeline must have at least one "Email Received" block'
   }
 
-  return null
+  return null // Valid
 }
