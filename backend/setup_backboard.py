@@ -19,14 +19,14 @@ CRITICAL RULES FOR NATURAL RESPONSES:
    - It's okay to start sentences with "And" or "But"
 
 2. NO AI PHRASES - NEVER use these:
-   ❌ "I hope this email finds you well"
-   ❌ "Thank you for reaching out"
-   ❌ "I'd be happy to help"
-   ❌ "Please don't hesitate to"
-   ❌ "Feel free to"
-   ❌ "I appreciate your patience"
-   ❌ "Looking forward to hearing from you"
-   ❌ "Let me know if you have any questions"
+    "I hope this email finds you well"
+    "Thank you for reaching out"
+    "I'd be happy to help"
+    "Please don't hesitate to"
+    "Feel free to"
+    "I appreciate your patience"
+    "Looking forward to hearing from you"
+    "Let me know if you have any questions"
    
 3. KEEP IT SHORT
    - 2-4 sentences MAX for most emails
@@ -40,10 +40,10 @@ CRITICAL RULES FOR NATURAL RESPONSES:
    - Mirror their tone
 
 5. BE DIRECT
-   ✅ "Yep, that works!"
-   ✅ "Got it, I'll take care of that."
-   ✅ "Sure thing!"
-   ❌ "I have received your message and I would be delighted to..."
+    "Yep, that works!"
+    "Got it, I'll take care of that."
+    "Sure thing!"
+    "I have received your message and I would be delighted to..."
 
 6. SOUND HUMAN
    - Use normal words: "got", "yeah", "okay", "sure"
@@ -53,16 +53,16 @@ CRITICAL RULES FOR NATURAL RESPONSES:
 EXAMPLES OF GOOD RESPONSES:
 
 User: "Hey, can you send me the report?"
-✅ GOOD: "Sure! Sending it over now."
-❌ BAD: "Thank you for reaching out. I'd be happy to send you the report. Please find it attached. Let me know if you have any questions!"
+ GOOD: "Sure! Sending it over now."
+ BAD: "Thank you for reaching out. I'd be happy to send you the report. Please find it attached. Let me know if you have any questions!"
 
 User: "Is this ready yet?"
-✅ GOOD: "Almost! Should be done by tomorrow."
-❌ BAD: "I appreciate your patience. The item is currently being processed and should be ready by tomorrow. I'll keep you updated on the progress."
+ GOOD: "Almost! Should be done by tomorrow."
+ BAD: "I appreciate your patience. The item is currently being processed and should be ready by tomorrow. I'll keep you updated on the progress."
 
 User: "Thanks for the help!"
-✅ GOOD: "No problem!"
-❌ BAD: "You're most welcome! It was my pleasure to assist you. Please don't hesitate to reach out if you need anything else in the future."
+ GOOD: "No problem!"
+ BAD: "You're most welcome! It was my pleasure to assist you. Please don't hesitate to reach out if you need anything else in the future."
 
 Remember: You're a real person having a normal conversation. Keep it natural, keep it short, keep it human."""
 
@@ -74,14 +74,14 @@ def update_assistant():
     assistant_id = os.getenv("BACKBOARD_ASSISTANT_ID")
     
     if not api_key:
-        print("❌ Error: BACKBOARD_API_KEY not found in .env")
+        print(" Error: BACKBOARD_API_KEY not found in .env")
         return
     
     if not assistant_id:
-        print("❌ Error: BACKBOARD_ASSISTANT_ID not found in .env")
+        print(" Error: BACKBOARD_ASSISTANT_ID not found in .env")
         return
     
-    print(f"🚀 Updating assistant {assistant_id}...")
+    print(f" Updating assistant {assistant_id}...")
     print()
     
     url = f"https://app.backboard.io/api/assistants/{assistant_id}"
@@ -97,7 +97,7 @@ def update_assistant():
         response = requests.put(url, json=data, headers=headers)
         response.raise_for_status()
         
-        print("✅ Assistant updated successfully!")
+        print(" Assistant updated successfully!")
         print()
         print("=" * 60)
         print("Next steps:")
@@ -108,10 +108,10 @@ def update_assistant():
         print()
         
     except requests.exceptions.HTTPError as e:
-        print(f"❌ HTTP Error: {e}")
+        print(f" HTTP Error: {e}")
         print(f"Response: {response.text}")
     except Exception as e:
-        print(f"❌ Error updating assistant: {e}")
+        print(f" Error updating assistant: {e}")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import { BlockData } from '../../../../types/pipeline';
 import { ConditionEmailReceivedModal } from './condition-email-receivedModal';
 import { IntegrationGmailModal } from './integrations/integration-gmail';
+import { IntegrationOutlookModal } from './integrations/integration-outlook'
 import { ActionReplyEmailModal } from './actions/action-reply-email';
 // Import other modals as you create them
 
@@ -36,6 +37,17 @@ export function BlockModalManager({ isOpen, onClose, onSave, blockData, workspac
     case 'integration-gmail':
       return (
         <IntegrationGmailModal
+          isOpen={isOpen}
+          onClose={onClose}
+          onSave={onSave}
+          blockData={blockData}
+          workspaceId={workspaceId}
+        />
+      );
+    
+    case "integration-outlook":
+      return (
+        <IntegrationOutlookModal
           isOpen={isOpen}
           onClose={onClose}
           onSave={onSave}

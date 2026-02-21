@@ -13,7 +13,7 @@ import { Play, Square, Loader2 } from 'lucide-react'
 
 // Hooks
 import { usePipelineSave } from '@/lib/hooks/usePipelineSave'
-import { useGmailSync } from '@/lib/hooks/useGmailSync'
+import { useEmailProviderSync } from '@/lib/hooks/useEmailProviderSync'
 import { usePipelineStatus } from '@/lib/hooks/usePipelineStatus'
 import { useVoiceCommand } from '@/lib/hooks/useVoiceCommand'
 
@@ -56,13 +56,7 @@ export default function WorkflowDashboardClient({
   
   usePipelineSave(store.blocks, workflow.id, isInitialized.current)
   
-  useGmailSync(
-    store.blocks,
-    workflow.id,
-    userId,
-    isInitialized.current,
-    (blocks) => store.setBlocks(blocks)
-  )
+  useEmailProviderSync(store.blocks, workflow.id, userId, isInitialized.current, (blocks) => store.setBlocks(blocks))
 
   // Get user ID
   useEffect(() => {

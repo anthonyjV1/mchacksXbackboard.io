@@ -340,9 +340,17 @@ export const BLOCK_DEFINITIONS: BlockDefinition[] = [
     type: 'integration-gmail', 
     label: 'Gmail', 
     icon: Mail, 
-    description: 'Email integration',
+    description: 'Gmail integration',
     category: 'Integrations',
     gradient: 'from-red-400 to-rose-500'
+  },
+  { 
+    type: 'integration-outlook', 
+    label: 'Outlook', 
+    icon: Mail, 
+    description: 'Outlook integration',
+    category: 'Integrations',
+    gradient: 'from-blue-400 to-cyan-500'
   },
   { 
     type: 'integration-calendar', 
@@ -350,7 +358,7 @@ export const BLOCK_DEFINITIONS: BlockDefinition[] = [
     icon: Calendar, 
     description: 'Schedule & meetings',
     category: 'Integrations',
-    gradient: 'from-blue-400 to-cyan-500'
+    gradient: 'from-yellow-400 to-amber-500'
   },
   { 
     type: 'integration-salesforce', 

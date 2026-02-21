@@ -1,4 +1,4 @@
-// frontend/src/components/pipeline/modals/integrations/integration-gmail.tsx
+// frontend/src/components/pipeline/modals/integrations/integration-outlook.tsx
 'use client';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
@@ -6,7 +6,7 @@ import { X, Mail, CheckCircle, AlertCircle } from 'lucide-react';
 import { BlockData } from '../../../../../types/pipeline';
 import { createClient } from '@/lib/supabase/client';
 
-interface IntegrationGmailModalProps {
+interface IntegrationOutlookModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: Partial<BlockData>) => void;
@@ -14,13 +14,13 @@ interface IntegrationGmailModalProps {
   workspaceId: string;
 }
 
-export function IntegrationGmailModal({
+export function IntegrationOutlookModal({
   isOpen,
   onClose,
   onSave,
   blockData,
   workspaceId
-}: IntegrationGmailModalProps) {
+}: IntegrationOutlookModalProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [userEmail, setUserEmail] = useState('');
@@ -33,11 +33,11 @@ export function IntegrationGmailModal({
 
   useEffect(() => {
     if (isOpen && mounted) {
-      checkGmailConnection();
+      checkOutlookConnection();
     }
   }, [isOpen, mounted]);
 
-  const checkGmailConnection = async () => {
+  const checkOutlookConnection = async () => {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -49,12 +49,13 @@ export function IntegrationGmailModal({
       const { data, error } = await supabase
         .from('user_oauth_credentials')
         .select('*')
-        .eq('provider', 'gmail')
+        .eq('user_id', user.id)
+        .eq('provider', 'outlook')
         .maybeSingle();
 
       if (data && !error) {
         setIsConnected(true);
-        setUserEmail(user.email || '');
+        setUserEmail(data.email || '');
         
         if (blockData.description !== 'Connected') {
           onSave({
@@ -63,16 +64,16 @@ export function IntegrationGmailModal({
           });
         }
       } else if (error) {
-        console.error('Error checking Gmail connection:', error);
+        console.error('Error checking Outlook connection:', error);
       }
     } catch (error) {
-      console.error('Error checking Gmail connection:', error);
+      console.error('Error checking Outlook connection:', error);
     }
     
     setLoading(false);
   };
 
-  const handleConnectGmail = async () => {
+  const handleConnectOutlook = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       alert('Please sign in first');
@@ -80,10 +81,10 @@ export function IntegrationGmailModal({
     }
 
     // Set flag before leaving for OAuth
-    localStorage.setItem('gmail_oauth_return', 'true');
+    localStorage.setItem('outlook_oauth_return', 'true');
 
     const redirectUrl = `${window.location.origin}/dashboard/${workspaceId}`;
-    const oauthUrl = `http://localhost:8000/auth/gmail?user_id=${user.id}&redirect_uri=${encodeURIComponent(redirectUrl)}`;
+    const oauthUrl = `http://localhost:8000/auth/outlook?user_id=${user.id}&redirect_uri=${encodeURIComponent(redirectUrl)}`;
     
     window.location.href = oauthUrl;
   };
@@ -92,15 +93,15 @@ export function IntegrationGmailModal({
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const confirmed = confirm('Are you sure you want to disconnect your Gmail account? Your workflows using Gmail triggers will stop working.');
+    const confirmed = confirm('Are you sure you want to disconnect your Outlook account? Your workflows using Outlook triggers will stop working.');
     if (!confirmed) return;
 
     try {
       await supabase
         .from('user_oauth_credentials')
         .delete()
-        .eq('user_id', user.id) 
-        .eq('provider', 'gmail');
+        .eq('user_id', user.id)
+        .eq('provider', 'outlook');
 
       setIsConnected(false);
       setUserEmail('');
@@ -111,8 +112,8 @@ export function IntegrationGmailModal({
       
       onClose();
     } catch (error) {
-      console.error('Error disconnecting Gmail:', error);
-      alert('Failed to disconnect Gmail');
+      console.error('Error disconnecting Outlook:', error);
+      alert('Failed to disconnect Outlook');
     }
   };
 
@@ -131,15 +132,15 @@ export function IntegrationGmailModal({
         <div className="p-6 border-b border-slate-200 shrink-0">
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-red-400 to-red-500 text-white shadow-lg">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-400 to-cyan-500 text-white shadow-lg">
                 <Mail size={22} />
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-900">
-                  Gmail Integration
+                  Outlook Integration
                 </h2>
                 <p className="text-sm text-slate-500 mt-0.5">
-                  Connect your Gmail account to use email triggers
+                  Connect your Microsoft account to use Outlook email triggers
                 </p>
               </div>
             </div>
@@ -156,7 +157,7 @@ export function IntegrationGmailModal({
           
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
             </div>
           ) : isConnected ? (
             <div className="space-y-6">
@@ -165,7 +166,7 @@ export function IntegrationGmailModal({
                   <CheckCircle size={20} className="text-green-600 mt-0.5 shrink-0" />
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-green-900 mb-1">
-                      Gmail Connected
+                      Outlook Connected
                     </p>
                     <p className="text-sm text-green-700">
                       {userEmail}
@@ -189,7 +190,7 @@ export function IntegrationGmailModal({
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-green-500 mt-0.5">✓</span>
-                    <span>Automatically process incoming emails</span>
+                    <span>Automatically process incoming Outlook emails</span>
                   </li>
                 </ul>
               </div>
@@ -198,17 +199,17 @@ export function IntegrationGmailModal({
                 onClick={handleDisconnect}
                 className="w-full px-4 py-3 text-sm font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-xl transition-colors"
               >
-                Disconnect Gmail
+                Disconnect Outlook
               </button>
             </div>
           ) : (
             <div className="space-y-6">
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-900">
-                  Why connect Gmail?
+                  Why connect Outlook?
                 </h3>
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  Connect your Gmail account to create workflows that automatically respond to incoming emails, process attachments, and more.
+                  Connect your Microsoft Outlook account to create workflows that automatically respond to incoming emails, process attachments, and more.
                 </p>
               </div>
 
@@ -223,11 +224,15 @@ export function IntegrationGmailModal({
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-slate-400 mt-0.5">•</span>
+                    <span>Send and create draft emails</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-slate-400 mt-0.5">•</span>
                     <span>Check for new emails to trigger workflows</span>
                   </li>
                 </ul>
                 <p className="text-xs text-slate-500 mt-3">
-                  We will never send emails on your behalf or modify your inbox without explicit actions you configure.
+                  We will never access emails or send messages without explicit actions you configure.
                 </p>
               </div>
 
@@ -246,11 +251,11 @@ export function IntegrationGmailModal({
               </div>
 
               <button
-                onClick={handleConnectGmail}
-                className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-red-400 to-red-500 hover:from-red-500 hover:to-red-600 rounded-xl transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2"
+                onClick={handleConnectOutlook}
+                className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-400 to-cyan-500 hover:from-blue-500 hover:to-cyan-600 rounded-xl transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2"
               >
                 <Mail size={16} />
-                Connect Gmail Account
+                Connect Outlook Account
               </button>
             </div>
           )}

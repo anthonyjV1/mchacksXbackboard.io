@@ -1,8 +1,9 @@
 """
 Action block: Reply to email with AI-generated response using Backboard.io
 FEATURES:
+- Multi-provider: Works with BOTH Gmail and Outlook
 - Custom instructions override default prompt
-- Draft mode: creates Gmail draft instead of auto-sending (REPLACES old drafts)
+- Draft mode: creates draft instead of auto-sending (REPLACES old drafts)
 - Smart reply decision (filters automated emails)
 - Per-sender conversation memory
 """
@@ -66,16 +67,19 @@ def get_user_gmail_service(user_id: str):
     return build('gmail', 'v1', credentials=creds)
 
 
+def get_user_outlook_service(user_id: str):
+    """Get Outlook service for user"""
+    from services.outlook_service import get_outlook_service
+    return get_outlook_service(user_id)
+
+
 def generate_conversation_key(gmail_thread_id: str, sender: str = None, subject: str = None) -> str:
-    # Use sender email as the primary key (each sender = separate conversation)
     if sender:
-        # Extract just the email address (remove name if present)
         email_match = re.search(r'<(.+?)>|^([^\s]+@[^\s]+)$', sender)
         if email_match:
             sender_email = email_match.group(1) or email_match.group(2)
             return f"sender_{sender_email.lower()}"
     
-    # Fallback: hash sender + normalized subject
     normalized_subject = subject.lower().replace("re:", "").replace("fwd:", "").strip() if subject else ""
     key_string = f"{sender}_{normalized_subject}"
     hash_value = hashlib.md5(key_string.encode()).hexdigest()[:16]
@@ -88,7 +92,6 @@ async def get_or_create_backboard_thread(
     user_id: str,
     sender_email: str
 ) -> str:
-    # Check if we already have a thread for this conversation
     result = supabase.table("email_conversations")\
         .select("backboard_thread_id")\
         .eq("conversation_key", conversation_key)\
@@ -98,11 +101,9 @@ async def get_or_create_backboard_thread(
         print(f"Using existing Backboard thread: {result.data[0]['backboard_thread_id']}")
         return result.data[0]["backboard_thread_id"]
     
-    # Create new thread
     print(f"Creating new Backboard thread for conversation: {conversation_key}")
     thread_id = await backboard_service.create_thread()
     
-    # Store it
     supabase.table("email_conversations").insert({
         "conversation_key": conversation_key,
         "backboard_thread_id": thread_id,
@@ -114,105 +115,72 @@ async def get_or_create_backboard_thread(
     return thread_id
 
 
-def create_gmail_draft(user_id: str, to_email: str, subject: str, body: str, thread_id: str = None):
-    service = get_user_gmail_service(user_id)
+def create_draft(user_id: str, to_email: str, subject: str, body: str, thread_id: str = None, provider: str = "gmail", email_id: str = None):
+    """Create draft - works with BOTH Gmail and Outlook"""
     
-    # CRITICAL: Delete any existing drafts in this thread first
-    if thread_id:
-        print(f"Checking for existing drafts in thread {thread_id}...")
+    if provider == "outlook":
+        print(f"Creating Outlook draft...")
+        service = get_user_outlook_service(user_id)
+        if thread_id:
+            service.delete_drafts_in_conversation(thread_id)
+        result = service.create_draft_reply(email_id, body)
+        print(f"Outlook draft created: {result['id']}")
+        return result
+    
+    else:  # Gmail
+        print(f"Creating Gmail draft...")
+        service = get_user_gmail_service(user_id)
         
-        try:
-            # Get all drafts
-            drafts_response = service.users().drafts().list(userId='me').execute()
-            
-            if 'drafts' in drafts_response:
-                deleted_count = 0
-                for draft_item in drafts_response['drafts']:
-                    try:
-                        # Get full draft details
-                        draft_detail = service.users().drafts().get(
-                            userId='me',
-                            id=draft_item['id']
-                        ).execute()
-                        
-                        # Check if this draft is in our thread
-                        draft_thread_id = draft_detail.get('message', {}).get('threadId')
-                        
-                        if draft_thread_id == thread_id:
-                            print(f"🗑️  Deleting old draft {draft_item['id']} (will replace with new one)")
-                            
-                            service.users().drafts().delete(
-                                userId='me',
-                                id=draft_item['id']
-                            ).execute()
-                            
-                            deleted_count += 1
-                    
-                    except Exception as e:
-                        print(f"Could not process draft {draft_item['id']}: {e}")
-                        continue
-                
-                if deleted_count > 0:
-                    print(f"Deleted {deleted_count} old draft(s) from this thread")
-                else:
-                    print(f"No existing drafts found in this thread")
+        if thread_id:
+            print(f"Checking for existing Gmail drafts...")
+            try:
+                drafts_response = service.users().drafts().list(userId='me').execute()
+                if 'drafts' in drafts_response:
+                    for draft_item in drafts_response['drafts']:
+                        try:
+                            draft_detail = service.users().drafts().get(userId='me', id=draft_item['id']).execute()
+                            if draft_detail.get('message', {}).get('threadId') == thread_id:
+                                service.users().drafts().delete(userId='me', id=draft_item['id']).execute()
+                        except:
+                            pass
+            except:
+                pass
         
-        except Exception as e:
-            print(f"   Could not list/delete old drafts: {e}")
-            print(f"   Continuing to create new draft anyway...")
-    
-    # NOW: Create the new draft
-    message = MIMEText(body)
-    message['to'] = to_email
-    message['subject'] = f"Re: {subject}" if not subject.startswith("Re:") else subject
-    
-    # Encode message
-    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    
-    draft_body = {
-        'message': {
-            'raw': raw_message
-        }
-    }
-    
-    # Add thread ID if replying in thread
-    if thread_id:
-        draft_body['message']['threadId'] = thread_id
-    
-    result = service.users().drafts().create(
-        userId='me',
-        body=draft_body
-    ).execute()
-    
-    print(f"New draft created: {result['id']}")
-    if thread_id:
-        print(f"   This is now the ONLY draft in thread {thread_id}")
-    return result
+        message = MIMEText(body)
+        message['to'] = to_email
+        message['subject'] = f"Re: {subject}" if not subject.startswith("Re:") else subject
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        draft_body = {'message': {'raw': raw_message}}
+        if thread_id:
+            draft_body['message']['threadId'] = thread_id
+        result = service.users().drafts().create(userId='me', body=draft_body).execute()
+        print(f"Gmail draft created: {result['id']}")
+        return result
 
 
-def send_gmail_reply(user_id: str, to_email: str, subject: str, body: str, thread_id: str = None):
-    service = get_user_gmail_service(user_id)
+def send_email(user_id: str, to_email: str, subject: str, body: str, thread_id: str = None, provider: str = "gmail", email_id: str = None):
+    """Send email - works with BOTH Gmail and Outlook"""
     
-    # Create email message
-    message = MIMEText(body)
-    message['to'] = to_email
-    message['subject'] = f"Re: {subject}" if not subject.startswith("Re:") else subject
+    if provider == "outlook":
+        print(f"Sending Outlook email...")
+        service = get_user_outlook_service(user_id)
+        result = service.send_reply(email_id, body)
+        print(f"Outlook email sent")
+        return result
     
-    # Encode message
-    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    
-    send_params = {
-        'userId': 'me',
-        'body': {'raw': raw_message}
-    }
-    
-    # Keep in same thread if provided
-    if thread_id:
-        send_params['body']['threadId'] = thread_id
-    
-    result = service.users().messages().send(**send_params).execute()
-    print(f"Email sent: {result['id']}")
-    return result
+    else:
+        print(f"Sending Gmail email...")
+        service = get_user_gmail_service(user_id)
+        message = MIMEText(body)
+        message['to'] = to_email
+        message['subject'] = f"Re: {subject}" if not subject.startswith("Re:") else subject
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        send_params = {'userId': 'me', 'body': {'raw': raw_message}}
+        if thread_id:
+            send_params['body']['threadId'] = thread_id
+        result = service.users().messages().send(**send_params).execute()
+        print(f"Gmail email sent: {result['id']}")
+        return result
 
 
 async def execute_reply_email(
@@ -222,39 +190,35 @@ async def execute_reply_email(
     config: dict
 ) -> dict:
     try:
-        # Extract email data from trigger
         sender_email = trigger_data.get("from", "")
         subject = trigger_data.get("subject", "")
         body = trigger_data.get("body", "")
-        gmail_thread_id = trigger_data.get("thread_id")
+        thread_id = trigger_data.get("thread_id")
+        email_id = trigger_data.get("email_id")
+        provider = trigger_data.get("provider", "gmail")
+        
+        print(f"\n{'='*60}")
+        print(f"   Processing email reply")
+        print(f"   Provider: {provider.upper()}")
+        print(f"   From: {sender_email}")
+        print(f"   Subject: {subject}")
+        print(f"{'='*60}\n")
 
-        # Generate conversation key for memory continuity (per sender)
         conversation_key = generate_conversation_key(
-            gmail_thread_id=gmail_thread_id,
+            gmail_thread_id=thread_id,
             sender=sender_email,
             subject=subject
         )
         
-        # CRITICAL: Decide if we should reply to this email
         should_reply, decision_reason = await backboard_service.should_reply_to_email(
             sender_email=sender_email,
             subject=subject,
             body=body
         )
         
-        print(f"Decision: {decision_reason}")
-        
         if not should_reply:
-            print(f"Skipping reply - not needed for this email type")
-            return {
-                "status": "skipped",
-                "reason": decision_reason,
-                "to": sender_email
-            }
+            return {"status": "skipped", "reason": decision_reason, "to": sender_email}
         
-        print(f"Reply needed - proceeding with AI response")
-        
-        # Get or create Backboard thread (maintains conversation memory)
         backboard_thread_id = await get_or_create_backboard_thread(
             conversation_key=conversation_key,
             workspace_id=workspace_id,
@@ -262,18 +226,10 @@ async def execute_reply_email(
             sender_email=sender_email
         )
         
-        print(f"Backboard thread ID: {backboard_thread_id}")
-        
-        # Get custom instructions from config
         custom_instructions = config.get("customInstructions", "").strip()
-        draft_mode = config.get("draftMode", True)  # Default to draft mode (safer)
+        draft_mode = config.get("draftMode", True)
         
-        # Build message content for AI
-        # CRITICAL: Custom instructions MUST override ALL default behavior
         if custom_instructions:
-            print(f"Using custom instructions (HIGHEST PRIORITY - overrides ALL defaults)")
-            
-            # Format with MAXIMUM EMPHASIS so AI CANNOT ignore it
             message_content = f"""!!!CRITICAL INSTRUCTIONS - ABSOLUTE PRIORITY - MUST FOLLOW EXACTLY!!!
 
 {custom_instructions}
@@ -287,10 +243,7 @@ Now respond to this customer email:
 
 {body}"""
         else:
-            print(f"Using default AI behavior")
-            # Just send the email body
             message_content = body.strip()
-        
         
         ai_reply = await backboard_service.add_message_and_get_reply(
             thread_id=backboard_thread_id,
@@ -299,123 +252,74 @@ Now respond to this customer email:
             body=message_content
         )
         
-        # Clean up memory annotations
         ai_reply = strip_memory_annotations(ai_reply)
         
-        # GUARANTEE CUSTOM INSTRUCTIONS ARE FOLLOWED
-        # If custom instructions exist, check if AI followed them
         if custom_instructions:
-            print(f"Verifying custom instructions were followed...")
-            
-            # Check for signature/sign-off requirements
             instruction_lower = custom_instructions.lower()
             has_signature_requirement = any(keyword in instruction_lower for keyword in [
-                'end with', 
-                'sign off', 
-                'signature', 
-                'best regards',
-                'sincerely',
-                'regards,',
-                'finish with',
-                'conclude with'
+                'end with', 'sign off', 'signature', 'best regards', 'sincerely', 'regards,', 'finish with', 'conclude with'
             ])
             
             if has_signature_requirement:
-                print(f"Custom instructions require signature/sign-off")
-                
-                # Try to extract the exact signature text from instructions
                 signature_lines = []
-                
-                # Look for patterns like "end with:" or "sign off with:"
-                import re
-                
-                # Pattern 1: "end with: [signature text]"
                 pattern1 = re.search(r'(?:end|finish|conclude|sign off)(?:\s+every email)?\s+with:\s*(.+?)(?:\n\n|$)', custom_instructions, re.IGNORECASE | re.DOTALL)
                 if pattern1:
                     signature_lines = [line.strip() for line in pattern1.group(1).strip().split('\n') if line.strip()]
                 
-                # Pattern 2: Look for quoted text after these keywords
                 if not signature_lines:
                     pattern2 = re.search(r'(?:end|finish|conclude|sign off).*?["\'](.+?)["\']', custom_instructions, re.IGNORECASE | re.DOTALL)
                     if pattern2:
                         signature_lines = [pattern2.group(1).strip()]
                 
-                # Pattern 3: Look for lines that look like signatures (contain "regards" or names)
                 if not signature_lines:
                     lines = custom_instructions.split('\n')
                     for i, line in enumerate(lines):
                         if any(keyword in line.lower() for keyword in ['regards', 'sincerely', 'best']):
-                            # Take this line and a few lines after
                             signature_lines = [l.strip() for l in lines[i:min(i+4, len(lines))] if l.strip()]
                             break
                 
                 if signature_lines:
                     expected_signature = '\n'.join(signature_lines)
-                    print(f"Extracted expected signature:\n{expected_signature}")
-                    
-                    # Check if AI included the signature (fuzzy match - allow for minor variations)
-                    signature_found = False
-                    for line in signature_lines:
-                        if line in ai_reply:
-                            signature_found = True
-                            break
-                    
+                    signature_found = any(line in ai_reply for line in signature_lines)
                     if not signature_found:
-                        print(f"AI FORGOT SIGNATURE! Force-appending it...")
-                        # Ensure proper spacing and append
                         if not ai_reply.endswith('\n'):
                             ai_reply += '\n'
                         ai_reply += '\n' + expected_signature
-                        print(f"Signature appended successfully")
-                    else:
-                        print(f"AI correctly included signature")
-                else:
-                    print(f"Could not extract exact signature text from instructions")
         
-        print(f"   AI generated reply ({len(ai_reply)} chars)")
-        print(f"   Preview: {ai_reply[:100]}...")
-        
-        # DRAFT MODE or AUTO-SEND based on config
         if draft_mode:
-            print(f"Draft mode enabled - creating draft (safer)")
-            
-            # Create draft instead of sending (REPLACES old drafts automatically)
-            draft_result = create_gmail_draft(
+            draft_result = create_draft(
                 user_id=user_id,
                 to_email=sender_email,
                 subject=subject,
                 body=ai_reply,
-                thread_id=gmail_thread_id
+                thread_id=thread_id,
+                provider=provider,
+                email_id=email_id
             )
-            
-            print(f"Draft created successfully! User can review and send.\n")
-            
             return {
                 "status": "draft_created",
                 "draft_id": draft_result['id'],
                 "to": sender_email,
+                "provider": provider,
                 "conversation_key": conversation_key,
                 "backboard_thread_id": backboard_thread_id,
                 "reply_length": len(ai_reply)
             }
         else:
-            print(f"Auto-send mode enabled - sending immediately")
-            
-            # Send the reply via Gmail immediately
-            send_gmail_reply(
+            send_email(
                 user_id=user_id,
                 to_email=sender_email,
                 subject=subject,
                 body=ai_reply,
-                thread_id=gmail_thread_id
+                thread_id=thread_id,
+                provider=provider,
+                email_id=email_id
             )
-            
-            print(f"Reply sent successfully!\n")
-            
             return {
                 "status": "success",
                 "reply_sent": True,
                 "to": sender_email,
+                "provider": provider,
                 "conversation_key": conversation_key,
                 "backboard_thread_id": backboard_thread_id,
                 "reply_length": len(ai_reply)
@@ -425,7 +329,4 @@ Now respond to this customer email:
         print(f"Error in reply_email action: {e}")
         import traceback
         traceback.print_exc()
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}
