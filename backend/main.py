@@ -17,12 +17,12 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode
 from datetime import datetime, timedelta, timezone
-from backend.handlers.gmail_webhook_handler import (
+from handlers.gmail_webhook_handler import (
     setup_gmail_watch, 
     stop_gmail_watch, 
     process_gmail_notification
 )
-from backend.handlers.outlook_webhook_handler import (
+from handlers.outlook_webhook_handler import (
     setup_outlook_watch,
     stop_outlook_watch,
     process_outlook_notification
