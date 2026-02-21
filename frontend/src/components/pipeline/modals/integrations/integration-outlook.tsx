@@ -55,7 +55,7 @@ export function IntegrationOutlookModal({
 
       if (data && !error) {
         setIsConnected(true);
-        setUserEmail(user.email || '');
+        setUserEmail(data.email || '');
         
         if (blockData.description !== 'Connected') {
           onSave({

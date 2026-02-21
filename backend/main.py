@@ -150,6 +150,12 @@ async def auth_gmail_callback(state: str, code: str):
     
     flow.fetch_token(code=code)
     credentials = flow.credentials
+
+    user_info_response = requests.get(
+    'https://www.googleapis.com/oauth2/v2/userinfo',
+    headers={'Authorization': f'Bearer {credentials.token}'}
+)
+    gmail_email = user_info_response.json().get('email', '') if user_info_response.ok else ''
     
     supabase.table("user_oauth_credentials").upsert({
         "user_id": user_id,
@@ -157,7 +163,8 @@ async def auth_gmail_callback(state: str, code: str):
         "access_token": credentials.token,
         "refresh_token": credentials.refresh_token,
         "token_expiry": credentials.expiry.isoformat() if credentials.expiry else None,
-        "scope": " ".join(SCOPES)
+        "scope": " ".join(SCOPES),
+        "email": gmail_email 
     }).execute()
     
     del oauth_states[state]
@@ -215,6 +222,16 @@ async def auth_outlook_callback(state: str, code: str):
     
     tokens = response.json()
     token_expiry = (datetime.now(timezone.utc) + timedelta(seconds=tokens.get('expires_in', 3600))).isoformat()
+
+    me_response = requests.get(
+    'https://graph.microsoft.com/v1.0/me',
+    headers={'Authorization': f'Bearer {tokens["access_token"]}'}
+    )
+    outlook_email = ''
+    if me_response.ok:
+        me_data = me_response.json()
+        outlook_email = me_data.get('mail') or me_data.get('userPrincipalName', '')
+
     
     supabase.table("user_oauth_credentials").upsert({
         "user_id": user_id,
@@ -222,7 +239,8 @@ async def auth_outlook_callback(state: str, code: str):
         "access_token": tokens['access_token'],
         "refresh_token": tokens.get('refresh_token'),
         "token_expiry": token_expiry,
-        "scope": ' '.join(MICROSOFT_SCOPES)
+        "scope": ' '.join(MICROSOFT_SCOPES),
+        "email": outlook_email
     }).execute()
     
     print(f"✅ Outlook OAuth complete for user {user_id}")

@@ -99,6 +99,7 @@ export function IntegrationGmailModal({
       await supabase
         .from('user_oauth_credentials')
         .delete()
+        .eq('user_id', user.id) 
         .eq('provider', 'gmail');
 
       setIsConnected(false);
