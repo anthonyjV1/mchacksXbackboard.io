@@ -10,16 +10,6 @@ import base64
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from services.backboard_service import backboard_service
-from gmail_webhook_handler import (
-    setup_gmail_watch, 
-    stop_gmail_watch, 
-    process_gmail_notification
-)
-from outlook_webhook_handler import (
-    setup_outlook_watch,
-    stop_outlook_watch,
-    process_outlook_notification
-)
 import re
 import secrets
 import requests
@@ -27,6 +17,17 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode
 from datetime import datetime, timedelta, timezone
+from backend.handlers.gmail_webhook_handler import (
+    setup_gmail_watch, 
+    stop_gmail_watch, 
+    process_gmail_notification
+)
+from backend.handlers.outlook_webhook_handler import (
+    setup_outlook_watch,
+    stop_outlook_watch,
+    process_outlook_notification
+)
+
 
 load_dotenv()
 
@@ -88,9 +89,7 @@ MICROSOFT_CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET")
 oauth_states = {}
 
 
-# ============================================================================
 # AUTH ENDPOINTS
-# ============================================================================
 
 @app.get("/auth/gmail")
 async def auth_gmail(user_id: str, redirect_uri: str):
@@ -188,7 +187,7 @@ async def auth_outlook(user_id: str, redirect_uri: str):
         'prompt': 'consent'
     }
     
-    print(f"🔐 Initiating Outlook OAuth for user {user_id}")
+    print(f"Initiating Outlook OAuth for user {user_id}")
     return RedirectResponse(f"{auth_url}?{urlencode(params)}")
 
 
@@ -202,7 +201,7 @@ async def auth_outlook_callback(state: str, code: str):
     user_id = user_data['user_id']
     frontend_redirect = user_data['redirect_uri']
     
-    print(f"✅ Outlook OAuth callback received for user {user_id}")
+    print(f"Outlook OAuth callback received for user {user_id}")
     
     response = requests.post(
         "https://login.microsoftonline.com/common/oauth2/v2.0/token",
@@ -217,7 +216,7 @@ async def auth_outlook_callback(state: str, code: str):
     )
     
     if not response.ok:
-        print(f"❌ Token exchange failed: {response.text}")
+        print(f"Token exchange failed: {response.text}")
         raise HTTPException(status_code=500, detail="Failed to get access token")
     
     tokens = response.json()
@@ -243,7 +242,7 @@ async def auth_outlook_callback(state: str, code: str):
         "email": outlook_email
     }).execute()
     
-    print(f"✅ Outlook OAuth complete for user {user_id}")
+    print(f"Outlook OAuth complete for user {user_id}")
     return RedirectResponse(frontend_redirect)
 
 
@@ -309,7 +308,7 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
     try:
         if has_gmail:
             watch_result = setup_gmail_watch(body.user_id, workspace_id)
-            print(f"✅ Gmail webhook active")
+            print(f"Gmail webhook active")
             print(f"   History ID: {watch_result['history_id']}")
             print(f"   Expires: {watch_result['expiration']}")
         
@@ -317,7 +316,7 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
             await asyncio.get_event_loop().run_in_executor(
                 executor, setup_outlook_watch, body.user_id, workspace_id
             )
-            print(f"✅ Outlook webhook active")
+            print(f" Outlook webhook active")
         
         return {
             "execution_id": execution_id,
@@ -346,13 +345,13 @@ async def stop_workflow(workspace_id: str, body: LaunchRequest):
     
     try:
         stop_gmail_watch(body.user_id, workspace_id)
-        print(f"✅ Gmail webhook stopped")
+        print(f" Gmail webhook stopped")
     except Exception as e:
         print(f"Could not stop Gmail webhook: {e}")
     
     try:
         stop_outlook_watch(body.user_id, workspace_id)
-        print(f"✅ Outlook webhook stopped")
+        print(f" Outlook webhook stopped")
     except Exception as e:
         print(f"Could not stop Outlook webhook: {e}")
     
@@ -395,9 +394,7 @@ async def get_workflow_status(workspace_id: str, user_id: str):
         return {"status": "idle"}
 
 
-# ============================================================================
 # BLOCK CONFIG ENDPOINTS
-# ============================================================================
 
 @app.get("/blocks/{block_id}/config")
 async def get_block_config(block_id: str, workspace_id: str):
@@ -433,9 +430,7 @@ async def save_block_config(block_id: str, body: BlockConfig):
     return {"success": True, "message": "Configuration saved"}
 
 
-# ============================================================================
 # WEBHOOK ENDPOINTS
-# ============================================================================
 
 @app.post("/webhooks/gmail")
 async def gmail_webhook(request: Request):
@@ -496,12 +491,12 @@ async def outlook_webhook(request: Request):
     
     validation_token = request.query_params.get('validationToken')
     if validation_token:
-        print(f"✅ Validation request - returning token IMMEDIATELY")
+        print(f" Validation request - returning token IMMEDIATELY")
         return Response(content=validation_token, media_type="text/plain", status_code=200)
     
     try:
         body = await request.json()
-        print(f"📨 Outlook notification received")
+        print(f" Outlook notification received")
         
         client_state = ""
         if 'value' in body and len(body['value']) > 0:
@@ -511,13 +506,11 @@ async def outlook_webhook(request: Request):
         return Response(status_code=202)
     
     except Exception as e:
-        print(f"❌ Webhook error: {e}")
+        print(f" Webhook error: {e}")
         return Response(status_code=202)
 
 
-# ============================================================================
 # VOICE COMMAND ENDPOINT
-# ============================================================================
 
 WORKFLOW_TEMPLATES = [
     {

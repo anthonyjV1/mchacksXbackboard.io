@@ -20,7 +20,7 @@ def setup_outlook_watch(user_id: str, workspace_id: str):
     Microsoft Graph subscriptions expire after max 3 days
     """
     
-    print(f"📧 Setting up Outlook watch for user {user_id}...")
+    print(f" Setting up Outlook watch for user {user_id}...")
     
     try:
         service = get_outlook_service(user_id)
@@ -37,14 +37,14 @@ def setup_outlook_watch(user_id: str, workspace_id: str):
             'clientState': os.getenv("OUTLOOK_CLIENT_STATE", "secretClientState")  # Secret for validation
         }
         
-        print(f"📤 Creating subscription with:")
+        print(f" Creating subscription with:")
         print(f"   URL: {notification_url}")
         print(f"   Resource: {subscription['resource']}")
         print(f"   Expiration: {subscription['expirationDateTime']}")
         print(f"   Full subscription: {subscription}")
         
         result = service._make_request('POST', '/subscriptions', json=subscription)
-        print(f"📋 Subscription result: {result}")
+        print(f" Subscription result: {result}")
         
         supabase.table("outlook_watches").upsert({
             "user_id": user_id,
@@ -54,14 +54,14 @@ def setup_outlook_watch(user_id: str, workspace_id: str):
             "client_state": subscription['clientState']  # add this
         }, on_conflict="user_id,workspace_id").execute()
         
-        print(f"✅ Outlook webhook set up successfully")
+        print(f" Outlook webhook set up successfully")
         print(f"   Subscription ID: {result['id']}")
         print(f"   Expires: {result['expirationDateTime']}")
         
         return result
     
     except Exception as e:
-        print(f"❌ Error setting up Outlook watch: {e}")
+        print(f" Error setting up Outlook watch: {e}")
         import traceback
         traceback.print_exc()
         raise
@@ -69,7 +69,7 @@ def setup_outlook_watch(user_id: str, workspace_id: str):
 def stop_outlook_watch(user_id: str, workspace_id: str):
     """Stop Outlook webhook and delete subscription"""
     
-    print(f"🛑 Stopping Outlook watch for user {user_id}...")
+    print(f" Stopping Outlook watch for user {user_id}...")
     
     try:
         # Get subscription from database
@@ -80,7 +80,7 @@ def stop_outlook_watch(user_id: str, workspace_id: str):
             .execute()
         
         if not watch.data:
-            print(f"⚠️ No Outlook watch found")
+            print(f" No Outlook watch found")
             return
         
         subscription_id = watch.data[0]['subscription_id']
@@ -96,10 +96,10 @@ def stop_outlook_watch(user_id: str, workspace_id: str):
             .eq("workspace_id", workspace_id)\
             .execute()
         
-        print(f"✅ Outlook webhook stopped and deleted")
+        print(f" Outlook webhook stopped and deleted")
     
     except Exception as e:
-        print(f"❌ Error stopping Outlook watch: {e}")
+        print(f" Error stopping Outlook watch: {e}")
         import traceback
         traceback.print_exc()
 
@@ -122,8 +122,6 @@ async def process_outlook_notification(notification_data: dict, client_state: st
     }
     """
     
-    print(f"📨 Processing Outlook webhook notification...")
-    
     try:
         for item in notification_data.get('value', []):
             # Validate client state for security
@@ -131,7 +129,7 @@ async def process_outlook_notification(notification_data: dict, client_state: st
             expected_client_state = os.getenv("OUTLOOK_CLIENT_STATE", "secretClientState")
             
             if item_client_state != expected_client_state:
-                print(f"⚠️ Invalid client state: {item_client_state}")
+                print(f" Invalid client state: {item_client_state}")
                 continue
             
             subscription_id = item['subscriptionId']
@@ -143,7 +141,6 @@ async def process_outlook_notification(notification_data: dict, client_state: st
                 .execute()
             
             if not watch.data:
-                print(f"⚠️ Unknown subscription: {subscription_id}")
                 continue
             
             user_id = watch.data[0]['user_id']
@@ -154,10 +151,9 @@ async def process_outlook_notification(notification_data: dict, client_state: st
             message_id = resource_data.get('id')
             
             if not message_id:
-                print(f"⚠️ No message ID in notification")
                 continue
             
-            print(f"📧 New Outlook email: {message_id}")
+            print(f"  New Outlook email: {message_id}")
             print(f"   User: {user_id}")
             print(f"   Workspace: {workspace_id}")
             
@@ -165,7 +161,7 @@ async def process_outlook_notification(notification_data: dict, client_state: st
             await process_new_outlook_email(user_id, workspace_id, message_id)
     
     except Exception as e:
-        print(f"❌ Error processing Outlook notification: {e}")
+        print(f" Error processing Outlook notification: {e}")
         import traceback
         traceback.print_exc()
 
@@ -196,14 +192,14 @@ async def process_new_outlook_email(user_id: str, workspace_id: str, message_id:
         
         # CRITICAL: Filter out emails from self
         if user_email.lower() == from_email.lower():
-            print(f"⏭️ Skipping email from self: {from_email}")
+            print(f" Skipping email from self: {from_email}")
             return
         
-        print(f"📨 Processing Outlook email from {from_email}: {subject}")
+        print(f" Processing Outlook email from {from_email}: {subject}")
         
         # Check for attachments
         has_attachments = message.get('hasAttachments', False)
-        print(f"📎 Has attachments: {has_attachments}")
+        print(f" Has attachments: {has_attachments}")
         
         # Find email-received condition block
         email_block = supabase.table("pipeline_blocks")\
@@ -213,11 +209,11 @@ async def process_new_outlook_email(user_id: str, workspace_id: str, message_id:
             .execute()
         
         if not email_block.data or len(email_block.data) == 0:
-            print(f"⚠️ No email-received block found in workspace {workspace_id}")
+            print(f" No email-received block found in workspace {workspace_id}")
             return
         
         block_id = email_block.data[0]['block_id']
-        print(f"✅ Found email-received block: {block_id}")
+        print(f" Found email-received block: {block_id}")
         
         # Get the config for this block
         config_result = supabase.table("block_configs")\
@@ -228,7 +224,7 @@ async def process_new_outlook_email(user_id: str, workspace_id: str, message_id:
         
         email_condition_config = config_result.data[0]['config'] if config_result.data else {}
         
-        print(f"🔍 Checking filters:")
+        print(f" Checking filters:")
         
         # Apply filters (same as Gmail)
         sender_filter = email_condition_config.get("senderEmail", "")
@@ -240,22 +236,22 @@ async def process_new_outlook_email(user_id: str, workspace_id: str, message_id:
         print(f"   Attachment required: {attachment_required}")
         
         if sender_filter and sender_filter.lower() not in from_email.lower():
-            print(f"⏭️ Email doesn't match sender filter")
+            print(f" Email doesn't match sender filter")
             print(f"   Expected: {sender_filter}")
             print(f"   Got: {from_email}")
             return
         
         if subject_filter and subject_filter.lower() not in subject.lower():
-            print(f"⏭️ Email doesn't match subject filter")
+            print(f" Email doesn't match subject filter")
             print(f"   Expected keyword: '{subject_filter}'")
             print(f"   Got subject: '{subject}'")
             return
         
         if attachment_required and not has_attachments:
-            print(f"⏭️ Email doesn't have required attachment")
+            print(f" Email doesn't have required attachment")
             return
         
-        print(f"✅ Email matches all conditions!")
+        print(f" Email matches all conditions!")
         
         # Build trigger data with provider info
         trigger_data = {
@@ -267,7 +263,7 @@ async def process_new_outlook_email(user_id: str, workspace_id: str, message_id:
             "provider": "outlook"  # CRITICAL: Mark as Outlook so reply action knows which API to use
         }
         
-        print(f"🚀 Triggering workflow for Outlook email")
+        print(f" Triggering workflow for Outlook email")
         
         # Execute workflow blocks (reply-email action will detect provider)
         await execute_reply_email(
@@ -278,6 +274,6 @@ async def process_new_outlook_email(user_id: str, workspace_id: str, message_id:
         )
         
     except Exception as e:
-        print(f"❌ Error processing Outlook email: {e}")
+        print(f" Error processing Outlook email: {e}")
         import traceback
         traceback.print_exc()

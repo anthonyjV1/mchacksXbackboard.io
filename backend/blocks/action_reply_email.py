@@ -119,20 +119,20 @@ def create_draft(user_id: str, to_email: str, subject: str, body: str, thread_id
     """Create draft - works with BOTH Gmail and Outlook"""
     
     if provider == "outlook":
-        print(f"📝 Creating Outlook draft...")
+        print(f"Creating Outlook draft...")
         service = get_user_outlook_service(user_id)
         if thread_id:
             service.delete_drafts_in_conversation(thread_id)
         result = service.create_draft_reply(email_id, body)
-        print(f"✅ Outlook draft created: {result['id']}")
+        print(f"Outlook draft created: {result['id']}")
         return result
     
     else:  # Gmail
-        print(f"📝 Creating Gmail draft...")
+        print(f"Creating Gmail draft...")
         service = get_user_gmail_service(user_id)
         
         if thread_id:
-            print(f"🔍 Checking for existing Gmail drafts...")
+            print(f"Checking for existing Gmail drafts...")
             try:
                 drafts_response = service.users().drafts().list(userId='me').execute()
                 if 'drafts' in drafts_response:
@@ -154,7 +154,7 @@ def create_draft(user_id: str, to_email: str, subject: str, body: str, thread_id
         if thread_id:
             draft_body['message']['threadId'] = thread_id
         result = service.users().drafts().create(userId='me', body=draft_body).execute()
-        print(f"✅ Gmail draft created: {result['id']}")
+        print(f"Gmail draft created: {result['id']}")
         return result
 
 
@@ -162,14 +162,14 @@ def send_email(user_id: str, to_email: str, subject: str, body: str, thread_id: 
     """Send email - works with BOTH Gmail and Outlook"""
     
     if provider == "outlook":
-        print(f"📤 Sending Outlook email...")
+        print(f"Sending Outlook email...")
         service = get_user_outlook_service(user_id)
         result = service.send_reply(email_id, body)
-        print(f"✅ Outlook email sent")
+        print(f"Outlook email sent")
         return result
     
-    else:  # Gmail
-        print(f"📤 Sending Gmail email...")
+    else:
+        print(f"Sending Gmail email...")
         service = get_user_gmail_service(user_id)
         message = MIMEText(body)
         message['to'] = to_email
@@ -179,7 +179,7 @@ def send_email(user_id: str, to_email: str, subject: str, body: str, thread_id: 
         if thread_id:
             send_params['body']['threadId'] = thread_id
         result = service.users().messages().send(**send_params).execute()
-        print(f"✅ Gmail email sent: {result['id']}")
+        print(f"Gmail email sent: {result['id']}")
         return result
 
 
@@ -198,7 +198,7 @@ async def execute_reply_email(
         provider = trigger_data.get("provider", "gmail")
         
         print(f"\n{'='*60}")
-        print(f"📧 Processing email reply")
+        print(f"   Processing email reply")
         print(f"   Provider: {provider.upper()}")
         print(f"   From: {sender_email}")
         print(f"   Subject: {subject}")
@@ -326,7 +326,7 @@ Now respond to this customer email:
             }
         
     except Exception as e:
-        print(f"❌ Error in reply_email action: {e}")
+        print(f"Error in reply_email action: {e}")
         import traceback
         traceback.print_exc()
         return {"status": "error", "error": str(e)}

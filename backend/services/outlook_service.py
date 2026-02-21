@@ -40,7 +40,7 @@ class OutlookService:
         # Refresh if expired or expiring soon (within 5 mins)
         now_utc = datetime.now(timezone.utc)
         if expiry < now_utc + timedelta(minutes=5):
-            print(f"🔄 Refreshing Outlook token for user {self.user_id}...")
+            print(f"Refreshing Outlook token for user {self.user_id}...")
             
             token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
             token_data = {
@@ -64,7 +64,7 @@ class OutlookService:
             }).eq("user_id", self.user_id).eq("provider", "outlook").execute()
             
             self.access_token = tokens['access_token']
-            print(f"✅ Outlook token refreshed")
+            print(f"Outlook token refreshed")
         else:
             self.access_token = creds['access_token']
     
@@ -82,7 +82,7 @@ class OutlookService:
         response = requests.request(method, url, headers=headers, **kwargs)
         
         if response.status_code == 401:
-            print(f"🔄 Got 401, forcing token refresh...")
+            print(f"Got 401, forcing token refresh...")
             token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
             
             creds_result = supabase.table("user_oauth_credentials")\
@@ -106,16 +106,16 @@ class OutlookService:
                     "token_expiry": new_expiry.isoformat()
                 }).eq("user_id", self.user_id).eq("provider", "outlook").execute()
                 self.access_token = tokens['access_token']
-                print(f"✅ Token force-refreshed")
+                print(f"Token force-refreshed")
                 headers['Authorization'] = f'Bearer {self.access_token}'
                 response = requests.request(method, url, headers=headers, **kwargs)
             else:
-                print(f"❌ Token refresh failed: {token_response.text}")
+                print(f"Token refresh failed: {token_response.text}")
                 response.raise_for_status()  # raise the original 401 explicitly
 
         # THEN after the if block, do the error checking:
         if not response.ok:
-            print(f"❌ Microsoft Graph API Error:")
+            print(f"   Microsoft Graph API Error:")
             print(f"   Status: {response.status_code}")
             print(f"   URL: {url}")
             print(f"   Request Body: {kwargs.get('json', 'N/A')}")
@@ -156,7 +156,7 @@ class OutlookService:
         
         self._make_request('PATCH', f'/me/messages/{draft_id}', json=update_data)
         
-        print(f"📝 Draft reply created: {draft_id}")
+        print(f"Draft reply created: {draft_id}")
         return {'id': draft_id}
     
     def send_reply(self, message_id: str, body: str):
@@ -168,7 +168,7 @@ class OutlookService:
         
         self._make_request('POST', f'/me/messages/{message_id}/reply', json=reply_data)
         
-        print(f"✅ Reply sent to message {message_id}")
+        print(f"Reply sent to message {message_id}")
         return {'sent': True}
     
     def delete_drafts_in_conversation(self, conversation_id: str):
@@ -193,14 +193,14 @@ class OutlookService:
                 for draft in drafts:
                     try:
                         self._make_request('DELETE', f'/me/messages/{draft["id"]}')
-                        print(f"✅ Deleted draft {draft['id']}")
+                        print(f"Deleted draft {draft['id']}")
                     except Exception as e:
-                        print(f"⚠️  Could not delete draft: {e}")
+                        print(f"Could not delete draft: {e}")
             else:
-                print(f"📝 No existing drafts in conversation")
+                print(f"No existing drafts in conversation")
         
         except Exception as e:
-            print(f"⚠️  Error checking for drafts: {e}")
+            print(f"Error checking for drafts: {e}")
 
 # Helper function to get service
 def get_outlook_service(user_id: str) -> OutlookService:
