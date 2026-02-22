@@ -184,9 +184,9 @@ export const BLOCK_DEFINITIONS: BlockDefinition[] = [
     isCondition: true
   },
   { 
-    type: 'condition-if-then', 
-    label: 'If/Then Logic', 
-    icon: Split, 
+    type: 'condition-scheduled-trigger', 
+    label: 'Scheduled Time', 
+    icon: Clock, 
     description: 'Custom condition branching',
     category: 'Conditions',
     gradient: 'from-purple-400 to-pink-500',

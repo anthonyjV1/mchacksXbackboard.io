@@ -27,7 +27,7 @@ from handlers.outlook_webhook_handler import (
     stop_outlook_watch,
     process_outlook_notification
 )
-
+from blocks.condition_scheduled_trigger import run_scheduled_trigger
 
 load_dotenv()
 
@@ -271,12 +271,31 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
     has_outlook = any(b['type'] == 'integration-outlook' for b in blocks.data)
     has_email_trigger = any(b['type'] == 'condition-email-received' for b in blocks.data)
     
-    if not has_email_trigger:
-        raise HTTPException(status_code=400, detail="Workflow must have at least one 'Email Received' condition block.")
-    
+    has_action = any(b['type'].startswith('action-') for b in blocks.data)
+    if not has_action:
+        raise HTTPException(status_code=400, detail="Please add at least one action block (e.g. Reply to Email).")
+
     if not has_gmail and not has_outlook:
         raise HTTPException(status_code=400, detail="No email integration found. Please add a Gmail or Outlook block.")
-    
+
+    # Check that no condition block is empty (has no actions before its end marker)
+    sorted_blocks = sorted(blocks.data, key=lambda b: b['position'])
+    condition_blocks = [b for b in sorted_blocks if b['type'] == 'condition-email-received']
+
+    for condition in condition_blocks:
+        condition_id = condition['block_id']
+        end_marker = next((b for b in sorted_blocks if b['type'] == 'condition-end-marker' and b['parent_condition_id'] == condition_id), None)
+        
+        if end_marker:
+            actions_in_condition = [
+                b for b in sorted_blocks 
+                if b['type'].startswith('action-')
+                and b['position'] > condition['position']
+                and b['position'] < end_marker['position']
+            ]
+            if not actions_in_condition:
+                raise HTTPException(status_code=400, detail=f"The '{condition['title']}' block has no actions. Add at least one action block inside it.")
+        
     if has_gmail:
         gmail_creds = supabase.table("user_oauth_credentials")\
             .select("*").eq("user_id", body.user_id).eq("provider", "gmail").execute()
@@ -317,6 +336,11 @@ async def launch_workflow(workspace_id: str, body: LaunchRequest):
                 executor, setup_outlook_watch, body.user_id, workspace_id
             )
             print(f" Outlook webhook active")
+        
+        has_scheduled_trigger = any(b['type'] == 'condition-scheduled-trigger' for b in blocks.data)
+        if has_scheduled_trigger:
+            asyncio.create_task(run_scheduled_trigger(body.user_id, workspace_id, execution_id))
+            print(f"⏰ Scheduled trigger active")
         
         return {
             "execution_id": execution_id,

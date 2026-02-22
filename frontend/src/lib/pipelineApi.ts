@@ -64,20 +64,39 @@ export function validatePipelineLaunch(blocks: BlockData[]): string | null {
     return 'Please add some blocks to your pipeline first'
   }
 
-  // Check for email integration (Gmail OR Outlook)
   const hasEmailIntegration = blocks.some(b => 
     b.type === 'integration-gmail' || b.type === 'integration-outlook'
   )
-  
   if (!hasEmailIntegration) {
     return 'Pipeline must have either Gmail or Outlook integration block'
   }
 
-  // Check for email trigger
-  const hasEmailTrigger = blocks.some(b => b.type === 'condition-email-received')
-  if (!hasEmailTrigger) {
-    return 'Pipeline must have at least one "Email Received" block'
+  const hasAction = blocks.some(b => b.type.startsWith('action-'))
+  if (!hasAction) {
+    return 'Please add at least one action block (e.g. Reply to Email)'
   }
 
-  return null // Valid
+  // If there's a condition block, make sure it's not empty
+  const sortedBlocks = [...blocks].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+  const conditionBlocks = sortedBlocks.filter(b => b.type === 'condition-email-received')
+  
+  for (const condition of conditionBlocks) {
+    const endMarker = sortedBlocks.find(b => 
+      b.type === 'condition-end-marker' && b.parentConditionId === condition.id
+    )
+    if (endMarker) {
+      const conditionPos = condition.position ?? 0
+      const endPos = endMarker.position ?? 999
+      const actionsInside = sortedBlocks.filter(b => 
+        b.type.startsWith('action-') && 
+        (b.position ?? 0) > conditionPos && 
+        (b.position ?? 0) < endPos
+      )
+      if (actionsInside.length === 0) {
+        return `'${condition.title}' block is empty — add at least one action inside it`
+      }
+    }
+  }
+
+  return null
 }

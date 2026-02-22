@@ -4,8 +4,8 @@ import base64
 from supabase import create_client
 from dotenv import load_dotenv
 from services.outlook_service import get_outlook_service
-from blocks.action_reply_email import execute_reply_email
 from datetime import datetime, timedelta, timezone
+from blocks.workflow_executor import execute_workflow_blocks
 
 load_dotenv()
 
@@ -266,12 +266,7 @@ async def process_new_outlook_email(user_id: str, workspace_id: str, message_id:
         print(f" Triggering workflow for Outlook email")
         
         # Execute workflow blocks (reply-email action will detect provider)
-        await execute_reply_email(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            trigger_data=trigger_data,
-            config={}  # Config loaded inside execute_reply_email
-        )
+        await execute_workflow_blocks(workspace_id, user_id, trigger_data)
         
     except Exception as e:
         print(f" Error processing Outlook email: {e}")

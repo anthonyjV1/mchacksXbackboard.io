@@ -62,6 +62,30 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     message: "Awesome! I've set up an email sender workflow for you. Connect Gmail and configure who you want to send emails to.",
     description: "Send automated emails based on triggers"
   },
+  {
+    id: "outlook-reply-automation",
+    name: "Outlook Reply Automation",
+    keywords: ["outlook", "reply", "respond", "answer", "reply to email", "auto reply", "respond to email", "replies", "automatically replies"],
+    blocks: [
+      {
+        type: "integration-outlook",
+        title: "Outlook Integration",
+        description: "Connect your Outlook account"
+      },
+      {
+        type: "condition-email-received",
+        title: "Email Received",
+        description: "Triggers when new email arrives"
+      },
+      {
+        type: "action-reply-email",
+        title: "Reply to Email",
+        description: "Send automated reply"
+      }
+    ],
+    message: "Perfect! I've created an email reply automation for you. Just connect your Gmail and set up your reply message, and you're ready to go!",
+    description: "Automatically reply to incoming emails"
+  },
 ];
 
 export function findMatchingTemplate(transcript: string): WorkflowTemplate | null {

@@ -18,7 +18,7 @@ export type ConditionBlockType =
   | 'condition-review-received'
   | 'condition-meeting-scheduled'
   | 'condition-form-submitted'
-  | 'condition-if-then';
+  | 'condition-scheduled-trigger';
 
 // ============================================
 // ACTION BLOCK TYPES
@@ -90,7 +90,8 @@ export interface BlockData {
   description?: string;
   isSystemGenerated?: boolean;
   parentConditionId?: string;
-  indentLevel?: number; // For visual nesting
+  indentLevel?: number;
+  position?: number;
 }
 
 // ============================================

@@ -1,7 +1,4 @@
-"""
-Gmail Webhook Handler - Production-Ready Email Monitoring
-FIXED: Automatic token refresh handling
-"""
+#/handler/gmail_webhook_handler.py
 import os
 import base64
 import json
@@ -12,6 +9,7 @@ from google.auth.transport.requests import Request
 from google.cloud import pubsub_v1
 from supabase import create_client
 from dotenv import load_dotenv
+from blocks.workflow_executor import execute_workflow_blocks
 
 load_dotenv()
 
@@ -103,7 +101,7 @@ def setup_gmail_watch(user_id: str, workspace_id: str):
     """
     try:
         # First, try to get the service (this will refresh token if needed)
-        print(f"📧 Setting up Gmail watch for user {user_id}...")
+        print(f"Setting up Gmail watch for user {user_id}...")
         
         try:
             service = get_user_gmail_service(user_id, force_refresh=True)
@@ -255,7 +253,6 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
     Process a single new email - check conditions and trigger workflow.
     This is the core logic that replaces check_for_emails polling.
     """
-    from blocks.action_reply_email import execute_reply_email
     
     try:
         service = get_user_gmail_service(user_id)
@@ -301,7 +298,7 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
                     has_attachments = True
                     break
         
-        print(f"📎 Has attachments: {has_attachments}")
+        print(f" Has attachments: {has_attachments}")
         
         # First, find the email-received condition block in pipeline_blocks
         email_block = supabase.table("pipeline_blocks")\
@@ -399,7 +396,7 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
         print(f"Triggering workflow execution {execution_id}")
         
         # Execute action blocks (reply-email, etc.) - AWAIT IT!
-        await execute_workflow_blocks(workspace_id, user_id, execution_id, trigger_data)
+        await execute_workflow_blocks(workspace_id, user_id, trigger_data)
         
         # Reset to waiting for next email
         supabase.table("workflow_executions").update({
@@ -412,61 +409,3 @@ async def process_new_email(user_id: str, workspace_id: str, message_id: str):
         print(f"Error processing email {message_id}: {e}")
         import traceback
         traceback.print_exc()
-
-
-async def execute_workflow_blocks(workspace_id: str, user_id: str, execution_id: str, trigger_data: dict):
-    """
-    Execute all action blocks in the workflow after email trigger.
-    """
-    from blocks.action_reply_email import execute_reply_email
-    
-    # Get all blocks for this workspace
-    blocks_result = supabase.table("pipeline_blocks")\
-        .select("*")\
-        .eq("workspace_id", workspace_id)\
-        .order("position")\
-        .execute()
-    
-    blocks = blocks_result.data
-    print(f"Executing {len(blocks)} blocks in workflow")
-    
-    # Skip condition blocks, only execute action blocks
-    action_blocks = [b for b in blocks if b['type'].startswith('action-')]
-    
-    print(f"🎯 Found {len(action_blocks)} action blocks to execute")
-    
-    for block in action_blocks:
-        block_type = block['type']
-        print(f"\n▶Executing block: {block['title']} ({block_type})")
-        
-        if block_type == 'action-reply-email':
-            try:
-                # Get block config
-                config_result = supabase.table("block_configs")\
-                    .select("config")\
-                    .eq("workspace_id", workspace_id)\
-                    .eq("block_id", block['block_id'])\
-                    .execute()
-                
-                config = config_result.data[0]['config'] if config_result.data else {}
-                
-                # Execute reply action (await it!)
-                result = await execute_reply_email(
-                    workspace_id=workspace_id,
-                    user_id=user_id,
-                    trigger_data=trigger_data,
-                    config=config
-                )
-                
-                if result.get('status') == 'error':
-                    print(f"Block failed: {result.get('error')}")
-                else:
-                    print(f"Block executed successfully")
-                    
-            except Exception as e:
-                print(f"Exception executing reply-email block: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        else:
-            print(f"Unknown block type: {block_type}")

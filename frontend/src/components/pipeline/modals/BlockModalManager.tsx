@@ -5,9 +5,11 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { BlockData } from '../../../../types/pipeline';
 import { ConditionEmailReceivedModal } from './condition-email-receivedModal';
+import { ConditionScheduledTriggerModal } from './condition-scheduled-triggerModal';
 import { IntegrationGmailModal } from './integrations/integration-gmail';
 import { IntegrationOutlookModal } from './integrations/integration-outlook'
 import { ActionReplyEmailModal } from './actions/action-reply-email';
+import { ActionSendEmailModal } from './actions/action-send-email'
 // Import other modals as you create them
 
 interface BlockModalManagerProps {
@@ -26,6 +28,17 @@ export function BlockModalManager({ isOpen, onClose, onSave, blockData, workspac
     case 'condition-email-received':
       return (
         <ConditionEmailReceivedModal
+          isOpen={isOpen}
+          onClose={onClose}
+          onSave={onSave}
+          blockData={blockData}
+          workspaceId={workspaceId}
+        />
+      );
+
+    case 'condition-scheduled-trigger':
+      return (
+        <ConditionScheduledTriggerModal
           isOpen={isOpen}
           onClose={onClose}
           onSave={onSave}
@@ -60,6 +73,17 @@ export function BlockModalManager({ isOpen, onClose, onSave, blockData, workspac
       return (
         <ActionReplyEmailModal
           isOpen={isOpen}
+          onClose={onClose}
+          onSave={onSave}
+          blockData={blockData}
+          workspaceId={workspaceId}
+        />
+      );
+
+    case 'action-send-email':
+      return (
+        <ActionSendEmailModal
+          isOpen={true}
           onClose={onClose}
           onSave={onSave}
           blockData={blockData}
