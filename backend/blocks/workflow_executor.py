@@ -9,6 +9,16 @@ supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 async def execute_workflow_blocks(workspace_id: str, user_id: str, trigger_data: dict):
 
+    if trigger_data.get('provider') == 'scheduled':
+        creds = supabase.table("user_oauth_credentials")\
+            .select("provider").eq("user_id", user_id).execute()
+        providers = [c['provider'] for c in creds.data]
+        # Prefer outlook if connected, fallback to gmail
+        if 'outlook' in providers:
+            trigger_data['provider'] = 'outlook'
+        elif 'gmail' in providers:
+            trigger_data['provider'] = 'gmail'
+
     blocks_result = supabase.table("pipeline_blocks")\
         .select("*").eq("workspace_id", workspace_id).order("position").execute()
 
